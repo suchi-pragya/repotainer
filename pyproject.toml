@@ -1,0 +1,15 @@
+[project]
+name = "repotainer"
+version = "0.0.1"
+description = "Generate reproducible Dev Container configurations from repository files"
+readme = "README.md"
+requires-python = ">=3.14"
+authors = [{ name = "Suchi Pragya", email = "suchipragya612@gmail.com" }]
+dependencies = []
+
+[project.scripts]
+repotainer = "repotainer:main"
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"
