@@ -2,6 +2,8 @@
 <h1>Repotainer</h1>
 </div>
 
+Repotainer generates reproducible Dev Container configurations from repository files.
+
 ## Quick Start (Dev Container)
 
 Prerequisites: Docker + VS Code with the Dev Containers extension.
