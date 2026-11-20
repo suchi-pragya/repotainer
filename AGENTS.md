@@ -1,26 +1,22 @@
 # Working on Repotainer
 
-## Start here
+## Read by relevance
 
 - Give concise, direct responses. Preserve the user's meaning and authorship.
-- Read [the document map](docs/index.md), then only the architecture, decisions, and source relevant to the task. Do not load the entire documentation tree.
+- Read [Development](docs/development.md) for shared practices, tooling, checks, and documentation maintenance.
+- Use the [design index](docs/designs/SITEMAP.md) to select relevant designs, then inspect the affected source and tests. Do not load the entire documentation tree.
+- Read the [current-state design](docs/designs/repository-inspection.md) for implementation interfaces, invariants, and side effects.
+- Git-root selection is unresolved; read [repository inspection](docs/designs/repository-inspection.md#open-questions) before changing its semantics.
+
+## Operating boundaries
+
 - Verify documentation against the current source and working tree. Surface disagreements; current behavior is not automatically the intended design.
 - Distinguish proposed choices, accepted decisions, implemented behavior, and verified results. A suggestion is not approval.
 - Never commit or push without an explicit request. Keep unrelated changes untouched.
-
-## Development
-
-- Keep `src/repotainer/cli.py` focused on composition, commands in `commands/`, and domain behavior in the appropriate package.
+- Stay within the authorized task. Documentation setup does not authorize feature implementation, publication, deployment, external communication, automation, or expanded execution permissions.
+- Do not inspect secrets or private content to fill documentation gaps. Written instructions do not enforce sandbox isolation.
 - Follow existing Python filesystem handling. Do not introduce shell commands for repository scanning without an agreed reason.
-- Git-root selection is unresolved; see [architecture](docs/architecture/overview.md) before changing its semantics.
-- Setup and environment instructions: [Contributing](docs/contributing/index.md).
-- Run checks appropriate to the change: `uv run python -m unittest discover -s tests` for Python behavior, `rumdl check AGENTS.md README.md docs` for Markdown, and `uvx zensical build --strict` for documentation rendering.
 
-## Maintain documentation as part of the work
+## Completion
 
-- Update affected docs alongside relevant changes without waiting for a separate reminder. Routine fixes need no new document.
-- Update [architecture](docs/architecture/overview.md) when component responsibilities, interfaces, or observable behavior change. Keep it about the current design; mark open questions explicitly.
-- Record significant choices and their reasoning in [ADRs](docs/decisions/index.md). Include useful alternatives and supporting evidence; never invent rationale or assume user agreement.
-- Update contributing instructions when setup or required checks change.
-- Keep useful verification evidence with the relevant design or decision. Do not maintain parallel status reports, journals, or transcripts.
-- Add a new document or folder only when concrete content needs it. Keep one authoritative home for each fact and link to it elsewhere.
+Update affected documentation alongside relevant changes without waiting for a separate reminder. Follow the [development and verification guidance](docs/development.md#checks), inspect any formatter or hook edits, and report actual results and remaining uncertainty. Scaffolding alone does not establish factual completeness or safe unattended execution.

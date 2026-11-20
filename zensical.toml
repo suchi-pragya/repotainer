@@ -1,15 +1,14 @@
 [project]
 site_name = "repotainer"
-site_description = "Repotainer architecture, contributing, and design decisions"
+site_description = "Repotainer development and feature designs"
 repo_name = "suchi-pragya/repotainer"
 repo_url = "https://github.com/suchi-pragya/repotainer"
 site_author = "Suchi Pragya"
 copyright = "Copyright &copy; 2026 Suchi Pragya"
 nav = [
-  { Home = "index.md" },
-  { Architecture = "architecture/overview.md" },
-  { Contributing = "contributing/index.md" },
-  { Decisions = "decisions/index.md" },
+  { Development = "development.md" },
+  { Designs = "designs/SITEMAP.md" },
+  { "Repository inspection" = "designs/repository-inspection.md" },
 ]
 
 [project.theme]
