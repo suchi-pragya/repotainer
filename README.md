@@ -20,3 +20,7 @@ code .
 ```
 
 Then run: `Dev Containers: Reopen in Container` from the VS Code Command Palette.
+
+## Documentation
+
+Start with the [document map](docs/index.md) for architecture, setup, and design decisions. Agents should read [AGENTS.md](AGENTS.md) before working on the project.
