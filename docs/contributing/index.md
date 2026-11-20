@@ -1,5 +1,7 @@
 # Contributing
 
+Read the repository's `AGENTS.md` when working with an agent.
+
 ## Clone the repository
 
 You need Git. For the Dev Container setup, you also need Docker, VS Code, and the Dev Containers extension.
@@ -37,3 +39,15 @@ mise run install-cli
 ```
 
 This installs the checkout as an editable tool for your user. You can then run `repotainer` from any directory while developing it. If the command is not found, run `uv tool update-shell` and reopen your terminal.
+
+## Checks
+
+Run the checks relevant to your change:
+
+```bash
+uv run python -m unittest discover -s tests
+rumdl check AGENTS.md README.md docs
+uvx zensical build --strict
+```
+
+Update architecture when design or behavior changes, contributing instructions when setup changes, and ADRs for significant decisions. Routine fixes need no new record.
