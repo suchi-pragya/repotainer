@@ -20,10 +20,6 @@ _.file = ".env"  # for sensitive data
 [shell_alias]
 pya = "source ./.venv/bin/activate"
 
-[tasks.docs]
-run = "uvx zensical serve"
-description = "Serve the documentation locally"
-
 [tasks.install-cli]
 run = "uv tool install --editable ."
 description = "Install the local Repotainer CLI for use from any directory"

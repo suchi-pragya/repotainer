@@ -2,6 +2,8 @@
 
 This is the shared development authority for humans and agents. The repository-root `AGENTS.md` defines agent operating boundaries; the [design index](designs/SITEMAP.md) routes readers to feature architecture and decisions. Run all commands below from the repository root unless stated otherwise.
 
+The `docs/` directory holds development documentation as repository Markdown. Read it in an editor or the repository's Markdown viewer, starting with this guide and the design index. No documentation server or site build is required.
+
 ## Environment and dependencies
 
 Python requirements and the installed `repotainer` entry point are defined in [pyproject.toml](../pyproject.toml); [.python-version](../.python-version) selects the development interpreter. [uv.lock](../uv.lock) owns resolved Python dependencies. [mise.toml](../mise.toml) declares development tools and tasks; [mise.lock](../mise.lock) records tool resolutions. Configuration owns exact versions and task bodies.
@@ -42,10 +44,11 @@ Run checks appropriate to the change. Commands in this table check project files
 | Python types | `ty check` | Type checker also configured as a hook; relevant for Python edits. |
 | Dependency lock | `uv lock --check` | Checks consistency with `pyproject.toml`. |
 | Markdown | `rumdl check AGENTS.md README.md docs` | [rumdl.toml](../rumdl.toml); required for Markdown changes, including new files. |
-| Documentation rendering | `uvx zensical build --strict` | [zensical.toml](../zensical.toml); required for documentation/navigation changes, writes ignored `site/` output. |
 | Shell lint | `shellcheck scripts/*.sh` | Required for shell-script changes; mise supplies ShellCheck on Linux/macOS. |
 
-Use `ruff check --fix .` and `ruff format .` only when intending to modify Python files, then inspect their diffs. `uvx` obtains Zensical separately from project dependencies; its version is not pinned in this repository. For a local documentation server, `mise run docs` runs `uvx zensical serve` and writes build output.
+Use `ruff check --fix .` and `ruff format .` only when intending to modify Python files, then inspect their diffs.
+
+For documentation changes, inspect relative file links and referenced headings in affected pages and their navigation routes. This is a contributor check; Markdown lint does not prove that links resolve, and no dedicated local-link checker is configured in hooks or CI.
 
 ### Hooks and CI
 
@@ -53,7 +56,7 @@ Prek is already adopted in [mise.toml](../mise.toml) and [CI](../.github/workflo
 
 `prek run --all-files` runs pre-commit-stage checks across tracked files. Hooks include file/configuration sanity checks, private-key detection, whitespace fixes, uv lock validation/export, Ruff fixes/formatting, ty, rumdl, and ShellCheck. This command can modify files, including generated requirements and formatting. Inspect those changes, rerun failed checks, and do not bypass required hooks. For new files not yet tracked, use direct checks above or `prek run --files <paths>` with explicit paths rather than relying on `--all-files` coverage.
 
-The repository CI workflow invokes Prek across tracked files. It does not explicitly run the unittest suite or documentation build. The separate [documentation workflow](../.github/workflows/docs.yml) runs `uvx zensical build --clean`, uploads an artifact on matching pushes, and deploys GitHub Pages. Its path filters cover `docs/**`, its workflow file, and `zensical.toml`; README-only or AGENTS-only changes do not trigger it. Local strict rendering remains a separate check. CI configuration is not evidence of a successful current run.
+The repository CI workflow invokes Prek across tracked files. It does not explicitly run the unittest suite. There is no documentation build or publication workflow. CI configuration is not evidence of a successful current run.
 
 Gitleaks is declared as a mise tool but has no configured hook or CI invocation here. Do not describe it as an enforced check. [.editorconfig](../.editorconfig) sets whitespace defaults; for Markdown, keep each prose paragraph on one source line despite its general line-length hint. rumdl disables its line-length rule. Preserve structural line breaks in code, tables, lists, and quotations.
 
@@ -75,4 +78,4 @@ Keep useful verification evidence with its design, identifying its assessed revi
 
 The README introduces the product; this guide owns shared development practices; AGENTS owns agent permissions and reading routes; designs own feature architecture and decisions. Keep one authoritative home for each fact. File-based context preserves useful reasoning across conversations without requiring a durable agent service, journals, parallel status reports, or transcripts; persistence alone does not establish accuracy.
 
-Update affected documents as part of implementation without a separate reminder. Assess behavior, interface, dependency, setup, tooling, and rationale changes. Distinguish stale prose, defects, unfinished work, and proposed behavior; do not rewrite accepted intent merely to match a defect. Routine fixes need no new document. Add pages or folders only for concrete content, maintain design status and navigation, and check local links plus the relevant Markdown and rendering checks. Tooling checks and scaffolding alone establish neither factual completeness nor safe unattended execution.
+Update affected documents as part of implementation without a separate reminder. Assess behavior, interface, dependency, setup, tooling, and rationale changes. Distinguish stale prose, defects, unfinished work, and proposed behavior; do not rewrite accepted intent merely to match a defect. Routine fixes need no new document. Add pages or folders only for concrete content, maintain design status and navigation, run Markdown lint, and inspect local links and referenced headings. Tooling checks and scaffolding alone establish neither factual completeness nor safe unattended execution.
