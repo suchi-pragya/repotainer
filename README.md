@@ -2,7 +2,7 @@
 <h1>Repotainer</h1>
 </div>
 
-Repotainer generates reproducible Dev Container configurations from repository files.
+Repotainer aims to generate reproducible Dev Container configurations from repository files. The current CLI resolves a file or directory and reports its Git context; configuration generation is not implemented.
 
 ## Quick Start (Dev Container)
 
@@ -23,4 +23,4 @@ Then run: `Dev Containers: Reopen in Container` from the VS Code Command Palette
 
 ## Documentation
 
-Start with the [document map](docs/index.md) for architecture, setup, and design decisions. Agents should read [AGENTS.md](AGENTS.md) before working on the project.
+Read [Development](docs/development.md) for setup, tooling, and checks, and the [design index](docs/designs/SITEMAP.md) for feature architecture and decisions. Agents should read [AGENTS.md](AGENTS.md) before working on the project.
