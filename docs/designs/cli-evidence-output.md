@@ -38,7 +38,7 @@ repotainer [PATH]
   -> print inventory counts followed by DetectionResult on stdout
 ```
 
-Keep the existing output through the inventory counts. Append the Python representation of `DetectionResult` to stdout as the temporary evidence report. It includes every tool group with evidence, the inventory-relative paths, the optional fields and values, and all read diagnostics in the detector's existing order. A matching file can yield no observations. The command includes both uv and Poetry when both rules emit evidence. A presence observation such as `uv.lock` indicates a workflow and carries no version value. [Evidence ordering](repository-evidence-detection.md#observation-identity-and-ordering)
+Keep the existing output through the inventory counts. Append the Python representation of `DetectionResult` to stdout as the temporary evidence report. It includes every tool group with evidence, the inventory-relative paths, the optional fields and values, and all read diagnostics in the detector's existing order. A matching file can yield no observations. The same observation appears in each tool group that receives it. For example, the `uv.lock` path can appear in both the uv and Python groups, with no version value in either. [Built-in evidence sharing](built-in-detection-rules.md#assemble-the-result) · [Evidence ordering](repository-evidence-detection.md#observation-identity-and-ordering)
 
 | Outcome | CLI behavior |
 | --- | --- |
@@ -72,7 +72,7 @@ Mise would use selected versions to set up the development environment. Generati
 
 ## Detailed Implementation Plan
 
-These steps describe the completed delivery. See [Implementation verification](#implementation-verification) for the results.
+These steps describe the original CLI output delivery. See [Implementation verification](#implementation-verification) for those results and the [built-in detection rules follow-up](built-in-detection-rules.md#implementation-verification) for verification of shared evidence in the current output.
 
 1. **Modify [src/repotainer/commands/main.py](../../src/repotainer/commands/main.py).** Import `detect` and `BUILTIN_RULES` from `repotainer.detection`. Call the detector once with the completed inventory, outside the scan exception handler and after the cancellation check. Run detection before printing the inventory success summary. Keep the current `.git` message and inventory summary, then append the Python representation of `DetectionResult` to stdout using the command's existing output mechanism. Update `--help` to mention evidence detection and keep the existing `PATH` argument and default.
 2. **Modify [tests/test_repository.py](../../tests/test_repository.py).** Add checks for the detector handoff and for output through the normal CLI.

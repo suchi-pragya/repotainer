@@ -55,7 +55,7 @@ Evaluate each matched entry with each interested rule
 | Matcher | Index selectors and identify all rules that accept each inventory entry. |
 | Evaluator | Interpret the matched entry and emit evidence from its metadata or a supported declaration. |
 | Readers | Read matched files on demand and share read or parse outcomes while an entry is being evaluated. |
-| Detector | Evaluate matching rules and assemble ordered evidence groups and diagnostics. |
+| Detector | Evaluate matching rules, share direct observations according to receiving-tool declarations, and assemble ordered evidence groups and diagnostics. |
 
 ### Detection input and output
 
@@ -71,13 +71,15 @@ For example, the result can contain these records:
 
 | Tool group | Path | Field | Value |
 | --- | --- | --- | --- |
+| `poetry` | `app/pyproject.toml` | `("tool", "poetry")` | `None` |
 | `python` | `.python-version` | `None` | `3.12` |
 | `python` | `app/pyproject.toml` | `("project", "requires-python")` | `>=3.12` |
+| `python` | `app/pyproject.toml` | `("tool", "poetry")` | `None` |
 | `python` | `samples/pyproject.toml` | `("project", "requires-python")` | `>=3.12` |
-| `poetry` | `app/pyproject.toml` | `("tool", "poetry")` | `None` |
+| `python` | `uv.lock` | `None` | `None` |
 | `uv` | `uv.lock` | `None` | `None` |
 
-The two manifests remain separate Python sources even though they declare equal values. The app manifest can also provide Poetry evidence. A Poetry field with no extracted value records the presence of a supported section. The uv record relies on file presence alone.
+The two manifests remain separate Python sources even though they declare equal values. Python also receives the Poetry table and uv lockfile observations with their original paths, fields, and values. The Poetry observation records the presence of a supported table, and the uv observation relies on file presence alone. [Built-in evidence sharing](built-in-detection-rules.md#receiving-tools-declare-their-sources)
 
 ### Match metadata first
 
@@ -107,11 +109,13 @@ A data file could express simple file-to-tool mappings. Rules that interpret str
 
 ### Component interfaces
 
-Expose `detect` and `BUILTIN_RULES` from the detection package. The built-in registry is a tuple of rules. A caller passes that tuple explicitly or supplies its own sequence for a test.
+The detection package exposes `detect` and `BUILTIN_RULES`. The built-in registry is a tuple defined in `repotainer.detection.rules` and re-exported from `repotainer.detection`. A caller passes that tuple explicitly or supplies its own sequence of rules.
 
 ```text
 detect(inventory: Inventory, rules: Sequence[Rule]) -> DetectionResult
-Rule(id: str, selectors: tuple[Selector, ...], evaluate: Evaluator)
+Rule(id: str, selectors: tuple[Selector, ...], evaluate: Evaluator,
+     evidence_sharing: EvidenceSharing | None = None)
+EvidenceSharing(receiver: str, sources: tuple[str, ...])
 Selector(
     path: tuple[str, ...] | None,
     filename: str | None,
@@ -129,6 +133,8 @@ Diagnostic(path: tuple[str, ...], reader: str, reason: str)
 ```
 
 Each evaluator receives one matched entry. Its reader is bound to that entry and refuses requests for a different entry or for an entry recorded as a directory. If an evaluator requests an inadmissible entry or emits evidence with a path other than the matched entry's path, raise `ValueError` as a rule-definition error. Keep the rule ID internal to validation and dispatch. Each emitted tool ID selects an evidence group.
+
+An optional `EvidenceSharing` declaration gives its receiving tool the direct observations emitted under the named source tool IDs. Declarations come from the supplied rules and apply even if their receiving rule matches no entries. The detector validates the declarations before evaluation and shares the original observations without triggering additional matches or reads. [Registration and result assembly](built-in-detection-rules.md#registration-and-result-assembly)
 
 A TOML value is a scalar from the standard-library parser, a read-only mapping for a table, or a tuple for an array. Apply read-only mappings and tuples recursively. The reader returns `None` for a failed content request and records the original inventory path, reader name (`text` or `toml`), and failure reason in the result's diagnostics. Other applicable rules and entries remain eligible.
 
@@ -167,9 +173,11 @@ Within a tool group, merge exact duplicates of `(path, field, value)`. Different
 | uv workflow | Match a regular file named `uv.lock`. Emit path-only evidence for `uv`. |
 | Poetry workflow | Match a regular file named `pyproject.toml`. Emit evidence for `poetry` with field `("tool", "poetry")` and no value when that field is a TOML table. Reuse the same TOML result if the Python rule requested it. |
 
-A blank or multiline nonblank version request file, an absent or unsupported field, and a manifest value of the wrong type yield no evidence for that declaration. A failed content request still produces the reader diagnostic specified above.
+A blank or multiline nonblank version request file, an absent or unsupported field, and a manifest value of the wrong type yield no evidence for that declaration. A failed content request still produces the reader diagnostic specified above. The [rules package](../../src/repotainer/detection/rules/__init__.py) registers these tool-specific rules. Python declares uv and Poetry as its evidence sources.
 
 ### Files and delivery order
+
+These checkpoints describe the original detector milestone. The [built-in rules follow-up](built-in-detection-rules.md#implementation-verification) replaced the original `rules.py` module and added evidence sharing.
 
 | Checkpoint | Repository-relative path | Action | Change |
 | --- | --- | --- | --- |
@@ -187,6 +195,8 @@ A blank or multiline nonblank version request file, an absent or unsupported fie
 For checkpoint 1, run `uv run python -m unittest discover -s tests -p test_detection.py`. Expect the core package to import and each synthetic fixture to pass. For checkpoint 2, run `uv run python -m unittest discover -s tests`. Expect the new integration and extension tests and existing scanner and CLI tests to pass. For checkpoint 3, run the suite again, `ruff check .`, `ruff format --check .`, `ty check`, Markdown lint, the local-link check, and `git diff --check`. Record the tested revision and actual results using the [development checks](../development.md#checks).
 
 ### Verification plan
+
+These fixtures describe the original milestone. The [built-in rule verification plan](built-in-detection-rules.md#verification-plan) covers current results that include shared evidence.
 
 | Checkpoint | Fixture | Expected result |
 | --- | --- | --- |

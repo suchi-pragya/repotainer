@@ -62,7 +62,14 @@ type Evaluator = Callable[[InventoryEntry, EntryReader], Iterable[tuple[str, Evi
 
 
 @dataclass(frozen=True, slots=True)
+class EvidenceSharing:
+    receiver: str
+    sources: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class Rule:
     id: str
     selectors: tuple[Selector, ...]
     evaluate: Evaluator
+    evidence_sharing: EvidenceSharing | None = None

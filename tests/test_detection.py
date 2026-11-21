@@ -5,7 +5,7 @@ import unittest
 from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from repotainer.detection import BUILTIN_RULES, detect
 from repotainer.detection.model import (
@@ -14,12 +14,14 @@ from repotainer.detection.model import (
     EntryKind,
     EntryReader,
     Evidence,
+    EvidenceSharing,
     Rule,
     Selector,
     TomlValue,
     ToolEvidence,
 )
 from repotainer.detection.readers import FILE_SIZE_LIMIT
+from repotainer.detection.rules import BUILTIN_RULES as RULES_PACKAGE_REGISTRY
 from repotainer.scanning.inventory import Inventory, InventoryEntry, scan_inventory
 
 
@@ -125,6 +127,22 @@ class DetectionTests(unittest.TestCase):
         for rules in ((valid, valid), (Rule("", valid.selectors, presence),), (Rule("empty", (), presence),)):
             with self.subTest(rules=rules), self.assertRaises(ValueError):
                 detect(inventory, rules)
+
+    def test_invalid_sharing_fails_before_evaluation(self) -> None:
+        self.write("source.txt")
+        inventory = self.inventory()
+        selectors = (Selector(filename="source.txt"),)
+        evaluate = Mock(side_effect=AssertionError("evaluated before registry validation"))
+        valid = Rule("valid", selectors, evaluate)
+        for sharing in (
+            EvidenceSharing("", ("source",)),
+            EvidenceSharing("receiver", ()),
+            EvidenceSharing("receiver", ("source", "")),
+        ):
+            invalid = Rule("invalid-sharing", selectors, evaluate, evidence_sharing=sharing)
+            with self.subTest(sharing=sharing), self.assertRaisesRegex(ValueError, "invalid-sharing"):
+                detect(inventory, (valid, invalid))
+        evaluate.assert_not_called()
 
     def test_rejects_reader_requests_and_evidence_outside_match(self) -> None:
         self.write("config.toml")
@@ -243,6 +261,66 @@ class DetectionTests(unittest.TestCase):
         self.assertEqual(detect(inventory, rules), expected)
         self.assertEqual(detect(inventory, tuple(reversed(rules))), expected)
 
+    def test_receivers_share_evidence_from_independent_rules(self) -> None:
+        self.write("first.txt")
+        self.write("second.txt")
+        inventory = self.inventory()
+        first = Evidence(("first.txt",))
+        second = Evidence(("second.txt",), ("example",))
+        second_value = Evidence(("second.txt",), ("example",), "explicit")
+
+        def additional_source(entry: InventoryEntry, reader: EntryReader) -> tuple[tuple[str, Evidence], ...]:
+            return (("presence", second), ("presence", second_value), ("other-tool", second))
+
+        def receiver_evidence(entry: InventoryEntry, reader: EntryReader) -> tuple[tuple[str, Evidence], ...]:
+            return (("first-receiver", first),)
+
+        source = Rule("first-indicator", (Selector(filename="first.txt"),), presence)
+        caller_source = Rule("additional-indicator", (Selector(filename="second.txt"),), additional_source)
+        receiver = Rule(
+            "first-receiver-rule",
+            source.selectors,
+            receiver_evidence,
+            evidence_sharing=EvidenceSharing("first-receiver", ("presence",)),
+        )
+        unmatched_receiver = Rule(
+            "second-receiver-rule",
+            (Selector(filename="absent.txt"),),
+            presence,
+            evidence_sharing=EvidenceSharing("second-receiver", ("presence",)),
+        )
+
+        result = detect(inventory, (source, receiver, unmatched_receiver, caller_source))
+        observations = (first, second, second_value)
+        self.assertEqual(
+            result.tools,
+            (
+                ToolEvidence("first-receiver", observations),
+                ToolEvidence("other-tool", (second,)),
+                ToolEvidence("presence", observations),
+                ToolEvidence("second-receiver", observations),
+            ),
+        )
+        source_group = result.tools[2]
+        self.assertIs(result.tools[3].evidence[2], source_group.evidence[2])
+        self.assertEqual(detect(inventory, (source, receiver, caller_source)).tools, result.tools[:-1])
+
+    def test_sharing_uses_direct_evidence_only(self) -> None:
+        self.write("source.txt")
+        inventory = self.inventory()
+        unmatched = (Selector(filename="absent.txt"),)
+        rules = (
+            Rule("source", (Selector(filename="source.txt"),), presence),
+            Rule("middle", unmatched, presence, evidence_sharing=EvidenceSharing("middle", ("presence", "presence"))),
+            Rule("middle-copy", unmatched, presence, evidence_sharing=EvidenceSharing("middle", ("presence",))),
+            Rule("last", unmatched, presence, evidence_sharing=EvidenceSharing("last", ("middle", "missing"))),
+            Rule("cycle", unmatched, presence, evidence_sharing=EvidenceSharing("presence", ("middle", "presence"))),
+        )
+        observations = (Evidence(("source.txt",)),)
+        expected = DetectionResult((ToolEvidence("middle", observations), ToolEvidence("presence", observations)), ())
+        self.assertEqual(detect(inventory, rules), expected)
+        self.assertEqual(detect(inventory, tuple(reversed(rules))), expected)
+
     def test_read_size_limit_preserves_other_results(self) -> None:
         self.write("exact.toml", b" " * FILE_SIZE_LIMIT)
         self.write("over.toml", b"\xff" * (FILE_SIZE_LIMIT + 1))
@@ -346,6 +424,8 @@ class DetectionTests(unittest.TestCase):
                         (
                             Evidence(("app", ".python-version"), value="3.12"),
                             Evidence(("app", "pyproject.toml"), ("project", "requires-python"), ">=3.13"),
+                            Evidence(("app", "pyproject.toml"), ("tool", "poetry")),
+                            Evidence(("app", "uv.lock")),
                             Evidence(("samples", "pyproject.toml"), ("project", "requires-python"), ">=3.13"),
                         ),
                     ),
@@ -353,6 +433,29 @@ class DetectionTests(unittest.TestCase):
                 ),
                 diagnostics=(),
             ),
+        )
+
+    def test_uv_alone_contributes_python_evidence_without_opening_the_lockfile(self) -> None:
+        self.write("uv.lock", b"\xff")
+        inventory = self.inventory()
+        with patch.object(Path, "open", side_effect=AssertionError("opened the uv lockfile")):
+            result = detect(inventory, BUILTIN_RULES)
+
+        observations = (Evidence(("uv.lock",)),)
+        self.assertEqual(
+            result, DetectionResult((ToolEvidence("python", observations), ToolEvidence("uv", observations)), ())
+        )
+
+    def test_poetry_alone_contributes_python_evidence_with_one_parse(self) -> None:
+        self.write("pyproject.toml", b"[tool.poetry]\n")
+        inventory = self.inventory()
+        with patch("repotainer.detection.readers.tomllib.loads", wraps=tomllib.loads) as parse:
+            result = detect(inventory, BUILTIN_RULES)
+
+        parse.assert_called_once()
+        observations = (Evidence(("pyproject.toml",), ("tool", "poetry")),)
+        self.assertEqual(
+            result, DetectionResult((ToolEvidence("poetry", observations), ToolEvidence("python", observations)), ())
         )
 
     def test_builtins_extract_supported_declarations_and_report_content_failures(self) -> None:
@@ -393,6 +496,7 @@ class DetectionTests(unittest.TestCase):
         )
 
     def test_empty_inventory_and_test_only_go_rule(self) -> None:
+        self.assertIs(BUILTIN_RULES, RULES_PACKAGE_REGISTRY)
         self.assertEqual(detect(self.inventory(), BUILTIN_RULES), DetectionResult((), ()))
         self.write("go.mod")
         inventory = self.inventory()

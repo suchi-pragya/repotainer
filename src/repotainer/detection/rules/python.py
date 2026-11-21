@@ -1,6 +1,6 @@
 from collections.abc import Mapping
 
-from repotainer.detection.model import EntryReader, Evidence, Rule, Selector
+from repotainer.detection.model import EntryReader, Evidence, EvidenceSharing, Rule, Selector
 from repotainer.scanning.inventory import InventoryEntry
 
 
@@ -26,24 +26,9 @@ def _python_runtime(entry: InventoryEntry, reader: EntryReader) -> tuple[tuple[s
     return ()
 
 
-def _uv_workflow(entry: InventoryEntry, reader: EntryReader) -> tuple[tuple[str, Evidence], ...]:
-    return (("uv", Evidence(entry.relative_path)),)
-
-
-def _poetry_workflow(entry: InventoryEntry, reader: EntryReader) -> tuple[tuple[str, Evidence], ...]:
-    manifest = reader.read_toml(entry)
-    if manifest is None:
-        return ()
-    tool = manifest.get("tool")
-    if isinstance(tool, Mapping) and isinstance(tool.get("poetry"), Mapping):
-        return (("poetry", Evidence(entry.relative_path, field=("tool", "poetry"))),)
-    return ()
-
-
-BUILTIN_RULES = (
-    Rule(
-        "python-runtime", (Selector(filename=".python-version"), Selector(filename="pyproject.toml")), _python_runtime
-    ),
-    Rule("uv-workflow", (Selector(filename="uv.lock"),), _uv_workflow),
-    Rule("poetry-workflow", (Selector(filename="pyproject.toml"),), _poetry_workflow),
+PYTHON_RULE = Rule(
+    "python-runtime",
+    (Selector(filename=".python-version"), Selector(filename="pyproject.toml")),
+    _python_runtime,
+    evidence_sharing=EvidenceSharing(receiver="python", sources=("uv", "poetry")),
 )

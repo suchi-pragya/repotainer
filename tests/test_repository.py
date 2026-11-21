@@ -53,6 +53,8 @@ class RepositoryTests(unittest.TestCase):
                     (
                         Evidence((".python-version",), value="3.13"),
                         Evidence(("pyproject.toml",), ("project", "requires-python"), ">=3.12"),
+                        Evidence(("pyproject.toml",), ("tool", "poetry")),
+                        Evidence(("uv.lock",)),
                     ),
                 ),
                 ToolEvidence("uv", (Evidence(("uv.lock",)),)),
@@ -70,7 +72,7 @@ class RepositoryTests(unittest.TestCase):
         result = self.runner.invoke(app, [str(self.root)])
 
         expected = DetectionResult(
-            tools=(ToolEvidence("uv", (Evidence(("uv.lock",)),)),),
+            tools=(ToolEvidence("python", (Evidence(("uv.lock",)),)), ToolEvidence("uv", (Evidence(("uv.lock",)),))),
             diagnostics=(Diagnostic(("pyproject.toml",), "toml", "invalid-toml"),),
         )
         self.assertEqual(result.exit_code, 0, result.output)

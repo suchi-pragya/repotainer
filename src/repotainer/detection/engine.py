@@ -19,7 +19,7 @@ type LookupKey = tuple[str, tuple[str, ...]]
 
 def detect(inventory: Inventory, rules: Sequence[Rule]) -> DetectionResult:
     """Collect tool evidence from a completed inventory."""
-    index = _index_rules(rules)
+    index, receivers_by_source = _index_rules(rules)
     evidence: dict[str, set[Evidence]] = defaultdict(set)
     diagnostics: list[Diagnostic] = []
 
@@ -40,6 +40,8 @@ def detect(inventory: Inventory, rules: Sequence[Rule]) -> DetectionResult:
                 if observation.path != entry.relative_path:
                     raise ValueError(f"{rule_id}: evidence must refer to the matched entry")
                 evidence[tool].add(observation)
+                for receiver in receivers_by_source.get(tool, ()):
+                    evidence[receiver].add(observation)
         diagnostics.extend(reader.diagnostics)
         # Drop the parsed content before creating the reader for the next matched entry.
         del reader
@@ -54,8 +56,11 @@ def _evidence_key(item: Evidence) -> tuple[tuple[str, ...], bool, tuple[str, ...
     return item.path, item.field is not None, item.field or (), item.value is not None, item.value or ""
 
 
-def _index_rules(rules: Sequence[Rule]) -> dict[LookupKey, list[tuple[Selector, Rule]]]:
+def _index_rules(
+    rules: Sequence[Rule],
+) -> tuple[dict[LookupKey, list[tuple[Selector, Rule]]], dict[str, set[str]]]:
     index: dict[LookupKey, list[tuple[Selector, Rule]]] = defaultdict(list)
+    receivers_by_source: dict[str, set[str]] = defaultdict(set)
     rule_ids: set[str] = set()
     for rule in rules:
         if not rule.id or rule.id in rule_ids:
@@ -65,7 +70,15 @@ def _index_rules(rules: Sequence[Rule]) -> dict[LookupKey, list[tuple[Selector, 
         rule_ids.add(rule.id)
         for selector in rule.selectors:
             index[_selector_key(selector)].append((selector, rule))
-    return index
+        sharing = rule.evidence_sharing
+        if sharing is not None:
+            if not sharing.receiver:
+                raise ValueError(f"{rule.id}: expected a nonempty receiving tool ID")
+            if not sharing.sources or not all(sharing.sources):
+                raise ValueError(f"{rule.id}: expected one or more nonempty source tool IDs")
+            for source in sharing.sources:
+                receivers_by_source[source].add(sharing.receiver)
+    return index, receivers_by_source
 
 
 def _selector_key(selector: Selector) -> LookupKey:
