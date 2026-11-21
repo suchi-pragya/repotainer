@@ -1,14 +1,9 @@
 import typer
 
-from repotainer.commands.detect import app as detect_app
+from repotainer.commands.detect import detect
 
-app = typer.Typer(no_args_is_help=True)
-app.add_typer(detect_app)
-
-
-@app.callback()
-def root() -> None:
-    """Repotainer command-line interface."""
+app = typer.Typer()
+app.command()(detect)
 
 
 def main() -> None:

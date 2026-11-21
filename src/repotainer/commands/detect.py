@@ -3,33 +3,38 @@ from typing import Annotated
 
 import typer
 
+from repotainer.scanning.inventory import scan_inventory
 from repotainer.scanning.repository import inspect_repository
 
-app = typer.Typer()
 
-
-@app.command()
 def detect(
-    path: Annotated[Path, typer.Argument(help="File or directory to scan.")] = Path("."),
-    allow_no_git: Annotated[
-        bool, typer.Option("--allow-no-git", help="Continue when no Git worktree contains the path.")
-    ] = False,
+    path: Annotated[Path, typer.Argument(help="Directory to inventory.")] = Path("."),
 ) -> None:
-    """Identify the requested path and its containing Git worktree."""
+    """Inventory the files and directories beneath a scan root."""
     try:
         context = inspect_repository(path)
+        if context.has_git_directory:
+            typer.echo(f"Found a .git directory at {context.scan_root}.")
+        else:
+            typer.echo(f"No .git directory found at {context.scan_root}. Continuing with inventory.")
+        result = scan_inventory(context.scan_root, _confirm_large_scan)
+    except typer.Abort as exc:
+        typer.echo("Error: Scan confirmation interrupted or input unavailable.", err=True)
+        raise typer.Exit(code=2) from exc
     except (OSError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=2) from exc
 
-    if context.git_root is None:
-        typer.echo(f"Warning: no Git integration detected for {context.scan_root}.", err=True)
-        if not allow_no_git:
-            typer.echo("Use --allow-no-git to continue.", err=True)
-            raise typer.Exit(code=2)
+    if result is None:
+        typer.echo("Inventory cancelled.", err=True)
+        raise typer.Exit(code=1)
 
-    typer.echo(f"Working directory: {Path.cwd()}")
-    typer.echo(f"Target: {context.target}")
-    typer.echo(f"Type: {context.kind}")
-    typer.echo(f"Scan root: {context.scan_root}")
-    typer.echo(f"Git root: {context.git_root or 'none'}")
+    files = sum(entry.kind == "file" for entry in result.entries)
+    typer.echo(f"Scan root: {result.scan_root}")
+    typer.echo(f"Files: {files}")
+    typer.echo(f"Directories: {len(result.entries) - files}")
+    typer.echo(f"Pruned directories: {result.pruned_directories}")
+
+
+def _confirm_large_scan(path: Path, threshold: int) -> bool:
+    return typer.confirm(f"Inventory at {path} exceeds {threshold:,} entries. Continue?", default=False, err=True)

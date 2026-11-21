@@ -4,5 +4,6 @@ Read only the designs relevant to the task. Approval, implementation, and verifi
 
 | Design | Updated | Components | Review status | Implementation state |
 | --- | --- | --- | --- | --- |
-| [Repository inspection](repository-inspection.md) | 2026-11-21 | CLI, detect command, path and Git-marker inspection | Consolidated current-state design; Git-root semantics unresolved | Context reporting implemented; generation absent |
+| [Repository inspection](repository-inspection.md) | 2026-11-21 | CLI, path validation, and local Git status | Current source contract | Updated for inventory cutover |
+| [Repository inventory](repository-inventory.md) | 2026-11-21 | Main command, scan boundary, Git status, ignore rules, file catalog | EGM Review completed on draft. Matcher and cutover resolutions accepted | Implemented and [verified locally](repository-inventory.md#implementation-verification) |
 | [Remove Zensical](remove-zensical.md) | 2026-11-21 | Developer documentation, tooling, publication workflow | Author: Suchi Pragya; author-approved; [five-stage review](remove-zensical.md#review-results-and-resolution) completed; both adopted wording findings addressed | Implemented; [verification](remove-zensical.md#implementation-verification) recorded |

@@ -1,31 +1,23 @@
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 
-from repotainer.scanning.paths import PathKind, describe_path
+from repotainer.scanning.paths import resolve_scan_root
 
 
 @dataclass(frozen=True, slots=True)
 class RepositoryContext:
-    target: Path
-    kind: PathKind
     scan_root: Path
-    git_root: Path | None
+    has_git_directory: bool
 
 
 def inspect_repository(path: Path) -> RepositoryContext:
-    """Resolve a target and find the closest Git worktree containing it."""
-    target, kind = describe_path(path)
-    scan_root = target if kind == "directory" else target.parent
+    """Resolve the target and check for a .git directory at that root."""
+    scan_root = resolve_scan_root(path)
+    marker = scan_root / ".git"
+    try:
+        metadata = marker.lstat()
+    except FileNotFoundError:
+        return RepositoryContext(scan_root, False)
 
-    return RepositoryContext(target=target, kind=kind, scan_root=scan_root, git_root=_find_git_root(scan_root))
-
-
-def _find_git_root(scan_root: Path) -> Path | None:
-    """Find the nearest ancestor with a Git directory or worktree file."""
-
-    for directory in (scan_root, *scan_root.parents):
-        marker = directory / ".git"
-        if marker.is_dir() or marker.is_file():
-            return directory
-
-    return None
+    return RepositoryContext(scan_root, stat.S_ISDIR(metadata.st_mode) and not marker.is_junction())

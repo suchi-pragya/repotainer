@@ -2,7 +2,13 @@
 <h1>Repotainer</h1>
 </div>
 
-Repotainer aims to generate reproducible Dev Container configurations from repository files. The current CLI resolves a file or directory and reports its Git context; configuration generation is not implemented.
+Repotainer aims to generate reproducible Dev Container configurations from repository files. The current milestone inventories a directory and reports the number of retained files, retained directories, and skipped directory trees.
+
+## Inventory a project
+
+Run `repotainer` to scan the current directory, or `repotainer ./my-project` to use another directory. From a development checkout, use `uv run repotainer` with the same arguments.
+
+The scan works with or without Git installed. It applies supported `.gitignore` rules within the selected directory, skips symlinks and built-in exclusions such as `.venv` and `node_modules`, and asks before retaining more than 1,000 entries. Run `repotainer --help` for command usage. See [Repository inventory](docs/designs/repository-inventory.md) for the supported ignore syntax and scan boundaries.
 
 ## Quick Start (Dev Container)
 

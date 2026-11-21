@@ -6,7 +6,7 @@
 - Read [Development](docs/development.md) for shared practices, tooling, checks, and documentation maintenance.
 - Use the [design index](docs/designs/SITEMAP.md) to select relevant designs, then inspect the affected source and tests. Do not load the entire documentation tree.
 - Read the [current-state design](docs/designs/repository-inspection.md) for implementation interfaces, invariants, and side effects.
-- Git-root selection is unresolved; read [repository inspection](docs/designs/repository-inspection.md#open-questions) before changing its semantics.
+- Read [Repository inventory](docs/designs/repository-inventory.md#choose-the-scan-root) for the intended scan boundary and Git status behavior before changing the current CLI.
 
 ## Operating boundaries
 
