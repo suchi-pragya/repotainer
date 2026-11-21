@@ -7,7 +7,7 @@ from repotainer.scanning.inventory import scan_inventory
 from repotainer.scanning.repository import inspect_repository
 
 
-def detect(
+def run(
     path: Annotated[Path, typer.Argument(help="Directory to inventory.")] = Path("."),
 ) -> None:
     """Inventory the files and directories beneath a scan root."""

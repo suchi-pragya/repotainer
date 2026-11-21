@@ -1,9 +1,9 @@
 import typer
 
-from repotainer.commands.detect import detect
+from repotainer.commands.main import run
 
 app = typer.Typer()
-app.command()(detect)
+app.command()(run)
 
 
 def main() -> None:

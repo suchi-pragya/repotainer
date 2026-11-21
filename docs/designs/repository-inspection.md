@@ -6,7 +6,7 @@
 
 ## Behavior and architecture
 
-`repotainer [PATH]` resolves a directory, reports whether that directory contains `.git`, and inventories its contents. The installed entry point remains `repotainer.cli:main`. It registers `commands.detect.detect` as the single Typer command. Omitting `PATH` uses the working directory. `--help` displays generated usage. [CLI entry point](../../src/repotainer/cli.py) · [Command handler](../../src/repotainer/commands/detect.py)
+`repotainer [PATH]` resolves a directory, reports whether that directory contains `.git`, and inventories its contents. The installed entry point remains `repotainer.cli:main`. The Typer app registers `repotainer.commands.main.run` as its sole command. Omitting `PATH` uses the working directory. `--help` displays generated usage. [CLI entry point](../../src/repotainer/cli.py) · [Command handler](../../src/repotainer/commands/main.py)
 
 | Interface | Contract |
 | --- | --- |

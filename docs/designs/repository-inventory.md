@@ -62,14 +62,14 @@ flowchart TD
 
 | Component | Proposed change |
 | --- | --- |
-| [CLI entry point](../../src/repotainer/cli.py) and [current command](../../src/repotainer/commands/detect.py) | Register one command that accepts an optional directory path. The command reports local Git status, handles the large-scan prompt, and prints either a summary or a path-specific error. |
+| [CLI entry point](../../src/repotainer/cli.py) and [command handler](../../src/repotainer/commands/main.py) | Register one command that accepts an optional directory path. The command reports whether the scan root contains a `.git` directory, handles the large-scan prompt, and prints either a summary or a path-specific error. |
 | [Path and repository inspection](../../src/repotainer/scanning/repository.py) and [path handling](../../src/repotainer/scanning/paths.py) | Validate the directory target and supply the resolved scan root and local `.git` directory status before traversal. The inventory workflow uses the scan root for this check in place of the current ancestor search. |
 | Inventory builder in `scanning/` | Own the filesystem walk, built-in exclusions, scoped ignore rules, catalog entries, and prune count. Return the complete result on success. Keep terminal input and output in the command layer. |
 | Future detection rules | Use the completed catalog to locate candidates by file path, kind, and extension. Open selected declarations only when a rule needs their contents. |
 
 ### Command interface
 
-Define a single Typer command. `PATH` is an optional positional argument. `repotainer` inventories the current directory, and `repotainer ./project` inventories the supplied path. Typer generates `repotainer --help` from the argument and option definitions. The same entry point can continue into detection and generation as those stages are delivered. A separate `detect` command and export format can be designed later if people need a standalone inventory or detection report.
+`PATH` is an optional positional argument. `repotainer` inventories the current directory, and `repotainer ./project` inventories the supplied path. Typer generates `repotainer --help` from the argument and option definitions. The [root command design](root-command.md) defines how inventory and future stages fit into the single command.
 
 For the old `repotainer detect [PATH]` invocation, drop `detect` and remove `--allow-no-git` if present. If the old argument was a file, pass its parent directory explicitly. Scripts that parsed the previous path and Git context now receive inventory counts. A bare `repotainer detect` is parsed as a request to scan a directory named `detect`. Use `repotainer` to scan the current directory or `repotainer ./detect` to make that directory target explicit.
 
@@ -146,7 +146,7 @@ Scanning reads directory entries, file metadata, and applicable `.gitignore` con
 
 | Alternative | Benefit and trade-off | Decision |
 | --- | --- | --- |
-| Keep inventory under `repotainer detect [PATH]` | Preserves the current invocation and provides a standalone inspection command. It also introduces a command boundary before there is a standalone export or diagnostic workflow to justify it. | The author chose `repotainer [PATH]` for the first milestone. A diagnostic subcommand can be considered alongside a future export format. |
+| Keep inventory under `repotainer detect [PATH]` | Preserves the pre-cutover invocation and provides a standalone inspection command. It also introduces a command boundary before there is a standalone export or diagnostic workflow to justify it. | The author chose `repotainer [PATH]` for the first milestone. The [root command design](root-command.md) carries forward the single-command decision. |
 | Require Git or ask before scanning without it | A Git check can help identify a likely project root, but requiring Git or confirmation interrupts valid scans of ordinary directories and selected subdirectories. | The author chose to report local Git status and proceed with every valid directory. |
 | Find the containing Git root and inherit its ignore rules | Scans of a repository and one of its subdirectories would share the repository's exclusions. This requires reading configuration above the path the user selected. | The author chose the selected directory as the boundary for inventory and `.gitignore` files. |
 | Use Git's tracked-file list or preserve tracked exceptions to `.gitignore` | Listing tracked files limits the scan to versioned content but misses untracked declarations. Preserving tracked exceptions includes force-added files but requires consulting Git's index and gives different filtering behavior to folders without Git. | The author chose a filesystem walk that applies in-scope ignore patterns equally to tracked and untracked paths. |
@@ -188,7 +188,7 @@ Update path validation, repository inspection, the command and its tests, and th
 | [src/repotainer/scanning/paths.py](../../src/repotainer/scanning/paths.py) | Modify | Expand `~`, reject a final-component symlink, resolve strictly, and require a directory. Remove file-to-parent behavior from the inventory path. |
 | [src/repotainer/scanning/repository.py](../../src/repotainer/scanning/repository.py) | Modify | Return the absolute scan root and whether it has a real `.git` directory. Treat an absent `.git` entry as missing, propagate other metadata errors, and retire the ancestor lookup. |
 | [src/repotainer/cli.py](../../src/repotainer/cli.py) | Modify | Register the inventory handler as the single Typer command. Keep `repotainer.cli:main` as the installed entry point. Remove the subcommand registration and the help-on-empty root callback. |
-| [src/repotainer/commands/detect.py](../../src/repotainer/commands/detect.py) | Modify | Adapt the handler to accept the optional directory, report local Git status, supply the large-scan callback, and render the summary or an error. Remove `--allow-no-git`. |
+| `src/repotainer/commands/detect.py` | Modify | Adapt the handler to accept the optional directory, report local Git status, supply the large-scan callback, and render the summary or an error. Remove `--allow-no-git`. |
 | [tests/test_repository.py](../../tests/test_repository.py) | Modify | Replace tests for the old Git prerequisite and ancestor lookup with tests for the new inspection contract and main command. Use `CliRunner` to verify explicit and omitted directory arguments. |
 | [README.md](../../README.md) | Modify | Describe the actual installed invocation and inventory behavior. |
 | [docs/designs/repository-inspection.md](repository-inspection.md) | Modify | Reconcile the current source contracts with the updated inspection and CLI. |
