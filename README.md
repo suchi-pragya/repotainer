@@ -2,11 +2,13 @@
 <h1>Repotainer</h1>
 </div>
 
-Repotainer aims to generate reproducible Dev Container configurations from repository files. The current milestone inventories a directory and reports the number of retained files, retained directories, and skipped directory trees.
+Repotainer aims to generate reproducible Dev Container configurations from repository files. It currently inventories a directory and collects evidence of Python, uv, and Poetry workflows.
 
-## Inventory a project
+## Inspect a project
 
 Run `repotainer` to scan the current directory, or `repotainer ./my-project` to use another directory. From a development checkout, use `uv run repotainer` with the same arguments.
+
+After the inventory counts, the command prints the full detection result, including source paths, declaration values, and any read diagnostics. This temporary terminal output is intended for checking what the detection rules find. [CLI evidence output](docs/designs/cli-evidence-output.md)
 
 The scan works with or without Git installed. It applies supported `.gitignore` rules within the selected directory, skips symlinks and built-in exclusions such as `.venv` and `node_modules`, and asks before retaining more than 1,000 entries. Run `repotainer --help` for command usage. See [Repository inventory](docs/designs/repository-inventory.md) for the supported ignore syntax and scan boundaries.
 

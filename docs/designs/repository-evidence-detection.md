@@ -9,7 +9,7 @@
 
 Add a read-only detector that consumes the existing [repository inventory](repository-inventory.md#catalog-storage-and-lifetime). Registered rules identify tools and workflows from eligible entries. Detection groups observations by tool and retains their sources for later use in `mise.toml` generation.
 
-The first milestone delivers an in-memory detector with Python, uv, and Poetry rules. The root command ends with its current inventory summary. The scanner-to-detector handoff is exercised in an integration test. A test-only Go rule verifies that the same detector can support another ecosystem.
+The first milestone delivered an in-memory detector with Python, uv, and Poetry rules. At that milestone the root command ended with its inventory summary, and an integration test exercised the scanner-to-detector handoff. A test-only Go rule verified that the same detector could support another ecosystem. The root command now consumes the detector and prints its result. [CLI evidence output](cli-evidence-output.md)
 
 ## The problem
 

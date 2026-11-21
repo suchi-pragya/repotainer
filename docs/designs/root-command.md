@@ -32,12 +32,13 @@ repotainer [PATH]
   └─ cli.py:main → Typer app
        └─ commands/main.py:run
             ├─ inspect_repository → resolved root and .git directory presence
-            └─ scan_inventory → inventory catalog or cancellation
+            ├─ scan_inventory → inventory catalog or cancellation
+            └─ detect → evidence and read diagnostics after a successful scan
 ```
 
 The handler reports whether the resolved scan root contains a `.git` directory and passes its confirmation callback to the scanner. The scanner calls it once before retaining entry 1,001. On success, the scanner returns the catalog and the number of excluded directories it skipped. The handler renders the result and maps cancellation and failures to the existing messages and exit codes. [Large scans](repository-inventory.md#large-scans) · [Scanner side effects](repository-inspection.md#invariants-and-side-effects)
 
-As the workflow grows, the handler can pass that catalog to detection and then pass the detection result to generation. Each stage should own its rules and data. Keep `commands/main.py` focused on deciding which stages to call and translating their results into terminal output. Adding another Typer command or a root callback can change how Typer parses the first positional argument. The CLI tests and console-script checks in the implementation plan cover that risk.
+The handler passes the completed catalog to detection and prints the result after the inventory counts. Each stage owns its rules and data. Keep `commands/main.py` focused on deciding which stages to call and translating their results into terminal output. Adding another Typer command or a root callback can change how Typer parses the first positional argument. The CLI tests and console-script checks in the implementation plan cover that risk. [CLI evidence output](cli-evidence-output.md)
 
 ## Alternatives considered
 

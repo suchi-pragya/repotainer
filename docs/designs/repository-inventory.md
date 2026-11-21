@@ -7,7 +7,7 @@
 
 ## Overview
 
-Run `repotainer [PATH]` to inventory the selected directory. With no argument, it starts in the current directory. The command shows a scan summary and produces one in-memory catalog that later detection rules can use to find candidate project files.
+Run `repotainer [PATH]` to inventory the selected directory. With no argument, it starts in the current directory. The inventory milestone produced one in-memory catalog and reported a scan summary. The command now uses that catalog to collect and print evidence. [CLI evidence output](cli-evidence-output.md)
 
 ## The problem
 
@@ -68,6 +68,8 @@ flowchart TD
 | Future detection rules | Use the completed catalog to locate candidates by file path, kind, and extension. Open selected declarations only when a rule needs their contents. |
 
 ### Command interface
+
+This interface describes the inventory milestone. The command's evidence output is documented in [CLI evidence output](cli-evidence-output.md).
 
 `PATH` is an optional positional argument. `repotainer` inventories the current directory, and `repotainer ./project` inventories the supplied path. Typer generates `repotainer --help` from the argument and option definitions. The [root command design](root-command.md) defines how inventory and future stages fit into the single command.
 
