@@ -7,7 +7,7 @@
 
 ## Overview
 
-Run `repotainer [PATH]` to inventory the selected directory. With no argument, it starts in the current directory. The inventory milestone produced one in-memory catalog and reported a scan summary. The command now uses that catalog to collect and print evidence. [CLI evidence output](cli-evidence-output.md)
+Run `repotainer [PATH]` to inventory the selected directory. With no argument, it starts in the current directory. The inventory milestone produced one in-memory catalog and reported a scan summary. Later stages use that catalog to collect and print evidence, then generate a scaffold in the selected directory. [CLI evidence output](cli-evidence-output.md) · [Scaffold generation](devcontainer-scaffold.md#command-flow)
 
 ## The problem
 
@@ -42,6 +42,8 @@ The previous `repotainer detect` command reported the selected path and its Git 
 - **Then** confirmation resumes the same walk. A successful walk returns the complete catalog. Declining discards the buffered entries and ends the run.
 
 ## Technical plan
+
+This section records the inventory milestone. The [current CLI contract](repository-inspection.md#behavior-and-architecture) covers subsequent evidence reporting and scaffold generation.
 
 The command resolves the scan root and reports its Git status before starting the walk. The scanner walks the tree once, applying exclusions and collecting entries and counts. The command receives the completed catalog and prints a summary. Future detection rules can consume the same catalog in the same process.
 

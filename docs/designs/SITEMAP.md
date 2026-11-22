@@ -4,7 +4,8 @@ Read only the designs relevant to the task. Approval, implementation, and verifi
 
 | Design | Updated | Components | Review status | Implementation state |
 | --- | --- | --- | --- | --- |
-| [Repository inspection](repository-inspection.md) | 2026-11-21 | CLI, path validation, and local Git status | Current source contract | Updated for CLI evidence output |
+| [Dev container scaffold generation](devcontainer-scaffold.md) | 2026-11-22 | Root command, dev container templates, `mise.toml`, destination conflicts | Approved by Suchi Pragya. All 12 EGM review findings resolved | Implemented and [verified locally](devcontainer-scaffold.md#implementation-verification) |
+| [Repository inspection](repository-inspection.md) | 2026-11-22 | CLI, path validation, local Git status, and scaffold generation | Current source contract | Updated for scaffold generation |
 | [Repository inventory](repository-inventory.md) | 2026-11-21 | Main command, scan boundary, Git status, ignore rules, file catalog | EGM Review completed on draft. Matcher and cutover resolutions accepted | Implemented and [verified locally](repository-inventory.md#implementation-verification) |
 | [Repository evidence detection](repository-evidence-detection.md) | 2026-11-21 | Rule matching, declaration readers, tool evidence | Author: Suchi Pragya. Author-approved. All nine agreed EGM resolutions applied | Implemented and [verified locally](repository-evidence-detection.md#implementation-verification) |
 | [Built-in detection rules](built-in-detection-rules.md) | 2026-11-21 | Tool-specific rule modules, registry, evidence sharing across tools | Author: Suchi Pragya. Author-approved design. All eight EGM review findings resolved | Implemented and [verified locally](built-in-detection-rules.md#implementation-verification) |

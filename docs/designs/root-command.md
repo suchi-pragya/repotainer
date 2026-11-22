@@ -25,6 +25,8 @@ The inventory cutover removed the `detect` subcommand and kept `commands/detect.
 
 ## Technical plan
 
+This diagram records the workflow through the evidence output milestone. The [scaffold stage](devcontainer-scaffold.md#command-flow) now runs after the evidence report in the same root command.
+
 Keep the installed `repotainer` script pointing to `repotainer.cli:main`. In `cli.py`, import `run` from `repotainer.commands.main` and register it as the app’s sole command. Typer exposes a sole registered command directly when the app has no root callback or subgroups. Keep the positional path and its `.` default on `run` so Typer parses the path and generates help from the handler’s signature.
 
 ```text

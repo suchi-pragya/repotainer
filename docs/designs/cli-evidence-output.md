@@ -28,6 +28,8 @@ Before this change, the command stopped after reporting the scan root, whether i
 
 ## Technical Plan
 
+This section records the CLI at the evidence output milestone. The command now attempts scaffold generation after printing the evidence. See the [current command contract](repository-inspection.md#invariants-and-side-effects) and the [scaffold design](devcontainer-scaffold.md#command-flow) for current write behavior and exit status.
+
 The [root command handler](../../src/repotainer/commands/main.py) owns the handoff. Once `scan_inventory` returns an inventory, the handler calls `detect(inventory, BUILTIN_RULES)` once through the [detection package exports](../../src/repotainer/detection/__init__.py). The detector uses the inventory's scan root and cataloged entries. It evaluates the existing rules and reads matched files as needed. This adds declaration reads to the command without initiating a second directory walk.
 
 ```text
