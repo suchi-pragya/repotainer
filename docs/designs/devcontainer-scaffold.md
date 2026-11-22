@@ -7,22 +7,22 @@
 
 ## Overview
 
-Running `repotainer [PATH]` will inventory the selected directory, print detected tool evidence, and generate three static dev container files. If the project has no mise configuration, Repotainer also creates a root `mise.toml` with an empty `[tools]` table. Mise installs and manages tools inside the container.
+Running `repotainer [PATH]` inventories the selected directory, prints detected tool evidence, and generates three static Dev Container files. If the selected root has no Mise configuration at a recognized location, Repotainer also creates a root `mise.toml` from the selected tools. Mise installs and manages tools inside the container. [Mise tool configuration](mise-tool-configuration.md)
 
 ## The problem
 
-Before scaffold generation, the CLI stopped after reporting evidence and users created the container build and setup files themselves. A static scaffold lets users set up a project before [evidence can be mapped to tool selections](repository-evidence-detection.md#handoff-to-mise-generation). Generation must preserve existing project configuration and avoid changing which dev container opens by default. [Current CLI contract](repository-inspection.md)
+Before scaffold generation, the CLI stopped after reporting evidence and users created the container build and setup files themselves. The static scaffold prepares the container and can use a generated tool list. Generation must preserve existing project configuration and avoid changing which Dev Container opens by default. [Current CLI contract](repository-inspection.md)
 
 ## Goals
 
 - Keep `repotainer [PATH]` as the entry point. Use the current directory when `PATH` is omitted. Support projects with or without Git metadata.
 - Keep the inventory and evidence report. Generate the same static dev container files for any detection result.
-- Preserve existing mise config and create an empty `mise.toml` only when the selected project root has no mise config of its own.
+- Preserve existing Mise config. Create `mise.toml` for the selected tools only when there is no config at a recognized location anchored at the selected root.
 - Check all safely reachable dev container destinations and alternate configurations before creating anything. List all conflicts, including a blocked `.devcontainer` directory path, and exit without writing.
 
 ## Non-goals
 
-- Evidence-driven tool selection or Dockerfile generation in this milestone. The next use of evidence is to populate `mise.toml`. A later milestone can consider a generated Dockerfile if the static baseline no longer meets project needs.
+- Rendering a project-specific Dockerfile. The [Mise tool configuration design](mise-tool-configuration.md) owns the evidence-driven tool selection and version request policy.
 - Overwriting or merging existing configuration.
 - Building or starting the container during the Repotainer invocation. The dev container runner builds the image and invokes the setup script.
 
@@ -30,11 +30,12 @@ Before scaffold generation, the CLI stopped after reporting evidence and users c
 
 ### Command flow
 
-The [root command](../../src/repotainer/commands/main.py) runs the inventory and detector, prints the existing report, and passes the resolved root to the scaffold writer. A user who declines the large-scan prompt, a scan failure, or an unexpected detector failure ends the command before generation. A declaration-read diagnostic, such as an invalid `pyproject.toml`, is part of a completed detection result and does not block generation. The writer works from the resolved root and does not consume tool evidence.
+The [root command](../../src/repotainer/commands/main.py) runs the inventory and detector, prints the report, and passes the resolved root and selected tool IDs to the scaffold writer. A user who declines the large-scan prompt, a scan failure, or an unexpected detector failure ends the command before generation. A declaration-read diagnostic, such as an invalid `pyproject.toml`, is part of a completed detection result and does not block generation. [Tool selection and rendering](mise-tool-configuration.md#technical-plan)
 
 ```text
 repotainer [PATH]
   → resolve root → inventory → detect → print report
+  → select tool IDs → pass root and IDs to scaffold writer
   → check dev container conflicts and project mise config
   → report conflicts or write the scaffold
 ```
@@ -46,9 +47,9 @@ repotainer [PATH]
 | `.devcontainer/devcontainer.json` | Uses `.` as the build context relative to the config file, `Dockerfile` as the build file, and `bash .devcontainer/setup.sh` as `postCreateCommand`. |
 | `.devcontainer/Dockerfile` | Uses `mcr.microsoft.com/devcontainers/base:ubuntu26.04`, copies the mise binary from `jdxcode/mise` to `/usr/local/bin/`, and activates mise in the `vscode` user's Bash and Zsh startup files. The hand-maintained template omits the uv, `python3`, and `tmux` installation steps from [Repotainer's development Dockerfile](../../.devcontainer/Dockerfile). |
 | `.devcontainer/setup.sh` | Runs Bash with strict error handling, derives the workspace root from the script location without invoking Git, and runs `mise install` from that root. |
-| `mise.toml` | Created only when project mise config is absent. Contains a single empty `[tools]` table, so the generated file requests no tools. |
+| `mise.toml` | Created only when project Mise config is absent at the recognized locations. Contains one `"latest"` request per selected tool and an empty `[tools]` table when the selection is empty. |
 
-The three dev container templates ship with Repotainer. The generated configuration has no project-specific settings or host token forwarding.
+The three static Dev Container templates ship with Repotainer and contain no project-specific settings or host token forwarding.
 
 The setup script uses mise's normal discovery, environment selection, and trust behavior inside the container. Running `mise install` can install tools and run configured hooks. Mise can also load other configuration available in that container. Repotainer's root-only presence check controls file generation only. The setup command passes any install failure to the dev container runner. [Mise configuration](https://mise.jdx.dev/configuration.html) · [Mise trust](https://mise.jdx.dev/cli/trust.html)
 
@@ -87,7 +88,7 @@ A separate invocation would preserve the read-only behavior of `repotainer [PATH
 
 ### Populate mise config from evidence in the first milestone
 
-This would require tool and version selection rules before users could try generation. The first milestone reuses existing mise config or supplies an empty table. Evidence reporting stays available while tool selection is developed.
+The original scaffold milestone reused existing Mise config or supplied an empty table so users could try generation while selection rules were being developed. The follow-up milestone populates the table from detected tools. [Mise tool configuration](mise-tool-configuration.md)
 
 ### Generate over an existing dev container setup
 
@@ -98,6 +99,8 @@ Overwriting or merging would require compatibility rules across JSON, Dockerfile
 Keeping those files would avoid cleanup work, but users would need to clear scaffold conflicts before retrying. The writer attempts to remove only identifiable entries created in the failed run.
 
 ## Detailed implementation plan
+
+This historical plan describes the original static scaffold milestone.
 
 ### 1. Add the writer and resources
 
@@ -131,7 +134,7 @@ Run `uv run --locked python -m unittest discover -s tests -p test_repository.py`
 
 ## Implementation verification
 
-Verified the uncommitted implementation on working-tree base `f2ef6c1` with Python 3.14.6 on Linux on 2026-11-22.
+The original static scaffold milestone was verified on working-tree base `f2ef6c1` with Python 3.14.6 on Linux on 2026-11-22. See the [Mise tool configuration verification](mise-tool-configuration.md#implementation-verification) for the populated-table milestone.
 
 | Check | Result |
 | --- | --- |

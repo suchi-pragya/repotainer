@@ -1,4 +1,4 @@
-"""Write the static dev container scaffold into a resolved project root."""
+"""Write the dev container scaffold and optional mise config into a resolved project root."""
 
 import errno
 import os
@@ -30,7 +30,7 @@ class ScaffoldWriteError(Exception):
         self.cleanup_problems = cleanup_problems
 
 
-def write_scaffold(root: Path) -> tuple[Path, ...]:
+def write_scaffold(root: Path, *, selected_tools: tuple[str, ...] = ()) -> tuple[Path, ...]:
     """Return the project-relative paths created, in write order."""
     directory = root / _DEVCONTAINER
     directory_stat = _metadata(directory)
@@ -43,7 +43,7 @@ def write_scaffold(root: Path) -> tuple[Path, ...]:
         raise ScaffoldConflictError(tuple(sorted(conflicts, key=Path.as_posix)), preserves_root_mise)
 
     generate_mise = not preserves_root_mise and not _has_project_mise_config(root)
-    payloads = _template_payloads(generate_mise)
+    payloads = _template_payloads(generate_mise, selected_tools)
     directory_identity = _identity(directory_stat) if directory_stat else None
     created: dict[Path, _FileIdentity | None] = {}
     path = directory
@@ -189,12 +189,13 @@ def _has_project_mise_config(root: Path) -> bool:
     return False
 
 
-def _template_payloads(generate_mise: bool) -> dict[Path, bytes]:
+def _template_payloads(generate_mise: bool, selected_tools: tuple[str, ...]) -> dict[Path, bytes]:
     bundled = files("repotainer").joinpath("scaffold_templates")
     payloads = {}
     for path in (_DOCKERFILE, _SETUP, _CONFIG):
         if path == _CONFIG and generate_mise:
-            payloads[_MISE] = b"[tools]\n"
+            tool_lines = "".join(f'{tool} = "latest"\n' for tool in sorted(selected_tools))
+            payloads[_MISE] = f"[tools]\n{tool_lines}".encode()
         try:
             payloads[path] = bundled.joinpath(path.name).read_bytes()
         except OSError as exc:

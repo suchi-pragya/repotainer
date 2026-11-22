@@ -39,8 +39,9 @@ def run(
     typer.echo(f"Pruned directories: {inventory.pruned_directories}")
     typer.echo(repr(result))
 
+    selected_tools = tuple(tool.tool for tool in result.tools if tool.tool in ("python", "uv") and tool.evidence)
     try:
-        created = write_scaffold(inventory.scan_root)
+        created = write_scaffold(inventory.scan_root, selected_tools=selected_tools)
     except ScaffoldConflictError as exc:
         typer.echo("Error: Scaffold conflicts. No files created.", err=True)
         for conflict in exc.paths:

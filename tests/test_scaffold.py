@@ -39,6 +39,14 @@ class ScaffoldTests(unittest.TestCase):
         for excluded in ("uv", "python3", "tmux", "apt-get"):
             self.assertNotIn(excluded, dockerfile)
 
+    def test_creates_populated_mise_config_in_alphabetical_order(self) -> None:
+        created = write_scaffold(self.root, selected_tools=("uv", "python"))
+
+        self.assertEqual(created, (DOCKERFILE, SETUP, MISE, CONFIG))
+        content = (self.root / MISE).read_bytes()
+        self.assertEqual(content, b'[tools]\npython = "latest"\nuv = "latest"\n')
+        self.assertEqual(tomllib.loads(content.decode("utf-8")), {"tools": {"python": "latest", "uv": "latest"}})
+
     def test_preserves_each_supported_project_mise_location(self) -> None:
         locations = (
             "mise.toml",
@@ -70,7 +78,7 @@ class ScaffoldTests(unittest.TestCase):
                 config = root / location
                 config.parent.mkdir(parents=True)
                 config.write_bytes(b"unparsed original bytes")
-                self.assertEqual(write_scaffold(root), (DOCKERFILE, SETUP, CONFIG))
+                self.assertEqual(write_scaffold(root, selected_tools=("python", "uv")), (DOCKERFILE, SETUP, CONFIG))
                 self.assertEqual(config.read_bytes(), b"unparsed original bytes")
                 self.assertEqual((root / MISE).exists(), location == MISE.as_posix())
 
@@ -235,15 +243,17 @@ class ScaffoldTests(unittest.TestCase):
 
         def open_until_config(path: Path, mode: str, buffering: int = -1):
             if path == self.root / CONFIG:
+                self.assertEqual((self.root / MISE).read_bytes(), b'[tools]\npython = "latest"\n')
                 return fail_after_partial_write(path, mode, buffering)
             return original_open(path, mode, buffering)
 
         with patch.object(Path, "open", open_until_config), self.assertRaises(ScaffoldWriteError) as raised:
-            write_scaffold(self.root)
+            write_scaffold(self.root, selected_tools=("python",))
         self.assertIs(raised.exception.cause, cause)
         self.assertEqual(raised.exception.cleanup_problems, ())
         self.assertEqual(list(self.root.iterdir()), [])
-        self.assertEqual(write_scaffold(self.root), (DOCKERFILE, SETUP, MISE, CONFIG))
+        self.assertEqual(write_scaffold(self.root, selected_tools=("python",)), (DOCKERFILE, SETUP, MISE, CONFIG))
+        self.assertEqual((self.root / MISE).read_bytes(), b'[tools]\npython = "latest"\n')
 
     def test_cleanup_preserves_an_observed_replacement_file(self) -> None:
         original_open = Path.open

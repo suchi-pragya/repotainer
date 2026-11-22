@@ -10,7 +10,9 @@ Run `repotainer` to scan and scaffold the current directory, or `repotainer ./my
 
 After the inventory counts, the command prints the full detection result, including source paths, declaration values, and any read diagnostics. This temporary terminal output is intended for checking what the detection rules find. [CLI evidence output](docs/designs/cli-evidence-output.md)
 
-The command creates `.devcontainer/devcontainer.json`, `.devcontainer/Dockerfile`, and `.devcontainer/setup.sh` in the target. If the project has no mise configuration of its own, Repotainer also creates `mise.toml` with an empty `[tools]` table. Existing project mise config is preserved. When a dev container runner creates the container, it runs the setup script, which calls `mise install` from the project root.
+The command creates `.devcontainer/devcontainer.json`, `.devcontainer/Dockerfile`, and `.devcontainer/setup.sh` in the target. If the selected root has no Mise configuration at a recognized location, Repotainer creates `mise.toml` with a `"latest"` request for each Python or uv tool detected in the scanned tree. The `[tools]` table is empty when neither tool is detected. Existing project Mise configuration is preserved. [Mise tool configuration](docs/designs/mise-tool-configuration.md)
+
+Review and edit the generated `mise.toml` before creating the Dev Container. At post-create, the setup script invokes `mise install` from the project root. Mise resolves the floating requests at that point, so the installed versions can differ from the project's declared versions. The Dev Container runner receives installation failures after successful scaffold generation.
 
 Existing dev container destinations or alternate configs stop generation. Repotainer lists the conflicts without creating any files. If a write fails, it attempts to clean up files created during that run and reports anything it could not remove. Inspect the reported paths before removing partial output and retrying. [Scaffold design](docs/designs/devcontainer-scaffold.md#destination-checks-and-writes)
 

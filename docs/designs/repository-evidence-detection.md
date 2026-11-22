@@ -89,7 +89,7 @@ Each entry probes a fixed number of keys. The work after lookup depends on the s
 
 ### Handoff to Mise generation
 
-The detector hands off observations and diagnostics. A later stage will decide which observations apply to the requested environment, reconcile version declarations, and write `mise.toml`.
+The root command prints the detector's observations and diagnostics and uses its Python and uv evidence groups to select tools for the scaffold writer. The writer uses that selection when creating a root `mise.toml`. Version reconciliation is deferred to a later iteration. [Selection and writer handoff](mise-tool-configuration.md#from-detection-to-configuration)
 
 ## Alternatives considered
 

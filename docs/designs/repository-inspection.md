@@ -2,11 +2,11 @@
 
 - Updated: 2026-11-22
 - Author: Suchi Pragya
-- Status: Current source contract. [Repository inventory](repository-inventory.md), [CLI evidence output](cli-evidence-output.md), and [Dev container scaffold generation](devcontainer-scaffold.md) own their feature decisions and verification evidence.
+- Status: Current source contract. [Repository inventory](repository-inventory.md), [CLI evidence output](cli-evidence-output.md), [Dev container scaffold generation](devcontainer-scaffold.md), and [Mise tool configuration](mise-tool-configuration.md) own their feature decisions and verification evidence.
 
 ## Behavior and architecture
 
-`repotainer [PATH]` resolves a directory, reports whether it contains a `.git` directory, scans its contents, and passes the completed inventory to the detector with `BUILTIN_RULES`. After printing evidence, it attempts to generate a scaffold in the resolved directory. The installed entry point is `repotainer.cli:main`. The Typer app registers `repotainer.commands.main.run` as its sole command. Omitting `PATH` uses the working directory. `--help` displays generated usage. [CLI entry point](../../src/repotainer/cli.py) · [Command handler](../../src/repotainer/commands/main.py)
+`repotainer [PATH]` resolves a directory, reports whether it contains a `.git` directory, scans its contents, and passes the completed inventory to the detector with `BUILTIN_RULES`. After printing evidence, the command selects tool IDs from the result and passes them with the resolved root to the scaffold writer. The installed entry point is `repotainer.cli:main`. The Typer app registers `repotainer.commands.main.run` as its sole command. Omitting `PATH` uses the working directory. `--help` displays generated usage. [CLI entry point](../../src/repotainer/cli.py) · [Command handler](../../src/repotainer/commands/main.py) · [Tool selection](mise-tool-configuration.md#from-detection-to-configuration)
 
 | Interface | Contract |
 | --- | --- |
@@ -15,7 +15,7 @@
 | `scan_inventory(scan_root, confirm_large_scan) -> Inventory \| None` | Takes a validated root and a callback receiving the root and retained-entry threshold. Returns a frozen inventory with the absolute root, sorted tuple of `InventoryEntry` records, and prune count. Returns `None` on decline and propagates scan failures. [Inventory builder](../../src/repotainer/scanning/inventory.py) |
 | `read_ignore_rules(directory) -> tuple[IgnoreRule, ...]` | Reads a regular `.gitignore` in the given directory and returns ordered rules. The walker applies those rules within their original directory scope. [Ignore matcher](../../src/repotainer/scanning/ignore.py) |
 | `detect(inventory, BUILTIN_RULES) -> DetectionResult` | Evaluates the built-in rules against the completed inventory and returns evidence and declaration read diagnostics. [Detector contract](repository-evidence-detection.md#detection-input-and-output) |
-| `write_scaffold(root: Path) -> tuple[Path, ...]` | Checks dev container conflicts and root-scoped mise config. Creates the three scaffold files and an optional `mise.toml` in the selected root. Returns newly created paths in write order. [Scaffold writer](../../src/repotainer/scaffold.py) |
+| `write_scaffold(root: Path, *, selected_tools: tuple[str, ...] = ()) -> tuple[Path, ...]` | Checks Dev Container conflicts and recognized Mise config locations. Creates the three scaffold files and, when permitted, a root `mise.toml` for the selected tools. Returns newly created paths in write order. [Scaffold writer](../../src/repotainer/scaffold.py) |
 
 ## Invariants and side effects
 

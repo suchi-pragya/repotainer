@@ -4,6 +4,7 @@ Read only the designs relevant to the task. Approval, implementation, and verifi
 
 | Design | Updated | Components | Review status | Implementation state |
 | --- | --- | --- | --- | --- |
+| [Mise tool configuration from repository evidence](mise-tool-configuration.md) | 2026-11-22 | Python and uv detection, generated `mise.toml` | Approved by Suchi Pragya. All ten EGM review findings resolved | Implemented and [verified locally](mise-tool-configuration.md#implementation-verification) |
 | [Dev container scaffold generation](devcontainer-scaffold.md) | 2026-11-22 | Root command, dev container templates, `mise.toml`, destination conflicts | Approved by Suchi Pragya. All 12 EGM review findings resolved | Implemented and [verified locally](devcontainer-scaffold.md#implementation-verification) |
 | [Repository inspection](repository-inspection.md) | 2026-11-22 | CLI, path validation, local Git status, and scaffold generation | Current source contract | Updated for scaffold generation |
 | [Repository inventory](repository-inventory.md) | 2026-11-21 | Main command, scan boundary, Git status, ignore rules, file catalog | EGM Review completed on draft. Matcher and cutover resolutions accepted | Implemented and [verified locally](repository-inventory.md#implementation-verification) |

@@ -1,4 +1,5 @@
 import tempfile
+import tomllib
 import unittest
 from contextlib import chdir
 from pathlib import Path
@@ -67,6 +68,8 @@ class RepositoryTests(unittest.TestCase):
         )
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn("Files: 3", result.stdout)
+        config = tomllib.loads((self.root / "mise.toml").read_text(encoding="utf-8"))
+        self.assertEqual(config, {"tools": {"python": "latest", "uv": "latest"}})
         self.assertEqual(
             result.stdout.splitlines()[4:],
             [
@@ -94,6 +97,42 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(result.stdout.splitlines()[5:7], [repr(expected), "Created scaffold files:"])
         self.assertTrue((self.root / ".devcontainer" / "devcontainer.json").is_file())
         self.assertEqual(result.stderr, "")
+        config = tomllib.loads((self.root / "mise.toml").read_text(encoding="utf-8"))
+        self.assertEqual(config, {"tools": {"python": "latest", "uv": "latest"}})
+
+    def test_nested_uv_evidence_populates_mise_config_at_scan_root(self) -> None:
+        nested = self.root / "app"
+        nested.mkdir()
+        (nested / "uv.lock").touch()
+
+        result = self.runner.invoke(app, [str(self.root)])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        config = tomllib.loads((self.root / "mise.toml").read_text(encoding="utf-8"))
+        self.assertEqual(config, {"tools": {"python": "latest", "uv": "latest"}})
+        self.assertFalse((nested / "mise.toml").exists())
+
+    def test_poetry_evidence_adds_only_python_to_mise_config(self) -> None:
+        (self.root / "pyproject.toml").write_text("[tool.poetry]\n", encoding="utf-8")
+
+        result = self.runner.invoke(app, [str(self.root)])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("ToolEvidence(tool='poetry'", result.stdout)
+        config = tomllib.loads((self.root / "mise.toml").read_text(encoding="utf-8"))
+        self.assertEqual(config, {"tools": {"python": "latest"}})
+
+    def test_conflicting_python_versions_still_generate_latest(self) -> None:
+        (self.root / ".python-version").write_text("3.12\n", encoding="utf-8")
+        (self.root / "pyproject.toml").write_text('[project]\nrequires-python = ">=3.13"\n', encoding="utf-8")
+
+        result = self.runner.invoke(app, [str(self.root)])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("value='3.12'", result.stdout)
+        self.assertIn("value='>=3.13'", result.stdout)
+        config = tomllib.loads((self.root / "mise.toml").read_text(encoding="utf-8"))
+        self.assertEqual(config, {"tools": {"python": "latest"}})
 
     def test_detector_error_propagates_without_scan_error_or_success_output(self) -> None:
         error = ValueError("invalid built-in rule")
@@ -223,6 +262,7 @@ class RepositoryTests(unittest.TestCase):
                     self.assertFalse((target / "mise.toml").exists())
 
     def test_preserves_ignored_mise_config_and_reuses_existing_directory(self) -> None:
+        (self.root / "uv.lock").touch()
         (self.root / ".gitignore").write_text(".mise/\n", encoding="utf-8")
         mise = self.root / ".mise" / "config.toml"
         mise.parent.mkdir()
@@ -259,6 +299,25 @@ class RepositoryTests(unittest.TestCase):
             ],
         )
         self.assertEqual({path: path.read_bytes() for path in self.root.rglob("*") if path.is_file()}, before)
+
+    def test_devcontainer_conflict_blocks_populated_mise_config(self) -> None:
+        inputs = {"uv.lock": b"", ".devcontainer.json": b"{}\n"}
+        for name, content in inputs.items():
+            (self.root / name).write_bytes(content)
+
+        result = self.runner.invoke(app, [str(self.root)])
+
+        self.assertEqual(result.exit_code, 2, result.output)
+        self.assertIn("ToolEvidence(tool='uv'", result.stdout)
+        self.assertEqual(
+            result.stderr.splitlines(),
+            ["Error: Scaffold conflicts. No files created.", "  .devcontainer.json"],
+        )
+        self.assertCountEqual((path.name for path in self.root.iterdir()), inputs)
+        for name, content in inputs.items():
+            self.assertEqual((self.root / name).read_bytes(), content)
+        self.assertFalse((self.root / "mise.toml").exists())
+        self.assertFalse((self.root / ".devcontainer").exists())
 
     def test_reports_generation_error_and_cleanup_details(self) -> None:
         error = ScaffoldWriteError(
