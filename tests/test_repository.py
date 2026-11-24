@@ -69,7 +69,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn("Files: 3", result.stdout)
         config = tomllib.loads((self.root / "mise.toml").read_text(encoding="utf-8"))
-        self.assertEqual(config, {"tools": {"python": "latest", "uv": "latest"}})
+        self.assertEqual(config, {"tools": {"python": "3.13", "uv": "latest"}})
         self.assertEqual(
             result.stdout.splitlines()[4:],
             [
@@ -96,7 +96,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(result.stdout.splitlines()[5:7], [repr(expected), "Created scaffold files:"])
         self.assertTrue((self.root / ".devcontainer" / "devcontainer.json").is_file())
-        self.assertEqual(result.stderr, "")
+        self.assertIn('Recommended Mise request: python = "latest"', result.stderr)
         config = tomllib.loads((self.root / "mise.toml").read_text(encoding="utf-8"))
         self.assertEqual(config, {"tools": {"python": "latest", "uv": "latest"}})
 
@@ -122,7 +122,7 @@ class RepositoryTests(unittest.TestCase):
         config = tomllib.loads((self.root / "mise.toml").read_text(encoding="utf-8"))
         self.assertEqual(config, {"tools": {"python": "latest"}})
 
-    def test_conflicting_python_versions_still_generate_latest(self) -> None:
+    def test_manifest_takes_precedence_over_conflicting_series(self) -> None:
         (self.root / ".python-version").write_text("3.12\n", encoding="utf-8")
         (self.root / "pyproject.toml").write_text('[project]\nrequires-python = ">=3.13"\n', encoding="utf-8")
 
@@ -132,7 +132,120 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("value='3.12'", result.stdout)
         self.assertIn("value='>=3.13'", result.stdout)
         config = tomllib.loads((self.root / "mise.toml").read_text(encoding="utf-8"))
-        self.assertEqual(config, {"tools": {"python": "latest"}})
+        self.assertEqual(config, {"tools": {"python": "3.13"}})
+        self.assertIn("using the highest-priority evidence", result.stderr)
+        self.assertIn("Set aside: .python-version", result.stderr)
+
+    def test_nested_manifest_takes_precedence_over_root_exact_pin(self) -> None:
+        for selected in (".", "examples/legacy"):
+            with self.subTest(selected=selected), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                nested = root / "examples" / "legacy"
+                nested.mkdir(parents=True)
+                (root / ".python-version").write_bytes(b"3.13.2\n")
+                (nested / "pyproject.toml").write_bytes(b'[project]\nrequires-python = ">=3.12,<3.13"\n')
+                target = root / selected
+
+                result = self.runner.invoke(app, [str(target)])
+
+                self.assertEqual(result.exit_code, 0, result.output)
+                self.assertNotIn("Choose a python version", result.output)
+                self.assertEqual(tomllib.loads((target / "mise.toml").read_text()), {"tools": {"python": "3.12"}})
+                self.assertTrue((target / ".devcontainer" / "devcontainer.json").is_file())
+                if selected == ".":
+                    self.assertIn("examples/legacy/pyproject.toml", result.stderr)
+                    self.assertIn("Set aside: .python-version = '3.13.2'", result.stderr)
+                else:
+                    self.assertNotIn(".python-version", result.output)
+                    self.assertFalse((root / "mise.toml").exists())
+
+    def test_unsupported_authoritative_evidence_uses_latest_with_warning(self) -> None:
+        (self.root / ".python-version").write_bytes(b"3.13.7\n")
+        (self.root / "pyproject.toml").write_bytes(b'[project]\nrequires-python = ">=3.15.0rc1,<3.16"\n')
+
+        result = self.runner.invoke(app, [str(self.root)])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("pyproject.toml 'project.requires-python' = '>=3.15.0rc1,<3.16'", result.stderr)
+        self.assertIn("compatibility with the highest-priority declaration", result.stderr)
+        self.assertEqual(tomllib.loads((self.root / "mise.toml").read_text()), {"tools": {"python": "latest"}})
+
+    def write_manifest_conflict(self, root: Path) -> None:
+        nested = root / "examples" / "legacy"
+        nested.mkdir(parents=True)
+        (root / "pyproject.toml").write_bytes(b'[project]\nrequires-python = ">=3.13,<3.14"\n')
+        (nested / "pyproject.toml").write_bytes(b'[project]\nrequires-python = ">=3.12,<3.13"\n')
+
+    def test_interactive_version_choices_include_latest_and_retry_invalid_input(self) -> None:
+        for choice, request in enumerate(("3.12", "3.13", "latest"), 1):
+            with self.subTest(choice=choice), patch("repotainer.commands.main._can_prompt", return_value=True):
+                root = self.root / str(choice)
+                self.write_manifest_conflict(root)
+                result = self.runner.invoke(app, [str(root)], input=f"9\n{choice}\n")
+                self.assertEqual(result.exit_code, 0, result.output)
+                self.assertEqual(tomllib.loads((root / "mise.toml").read_text()), {"tools": {"python": request}})
+                menu = [
+                    line.strip() for line in result.stderr.splitlines() if line.startswith(("  1.", "  2.", "  3."))
+                ]
+                self.assertEqual(
+                    menu,
+                    [
+                        "1. 3.12 from examples/legacy/pyproject.toml 'project.requires-python' = '>=3.12,<3.13'",
+                        "2. 3.13 from pyproject.toml 'project.requires-python' = '>=3.13,<3.14'",
+                        "3. latest",
+                    ],
+                )
+                self.assertIn("Choose a number from 1 to 3.", result.stderr)
+                self.assertNotIn("Choose a python version", result.stdout)
+
+    def test_prompt_uses_stdin_and_stderr_terminals(self) -> None:
+        for stdin_tty, stderr_tty in ((True, True), (False, True), (True, False)):
+            with (
+                self.subTest(stdin=stdin_tty, stderr=stderr_tty),
+                patch("repotainer.commands.main.sys") as streams,
+            ):
+                root = self.root / f"{stdin_tty}-{stderr_tty}"
+                self.write_manifest_conflict(root)
+                streams.stdin.isatty.return_value = stdin_tty
+                streams.stderr.isatty.return_value = stderr_tty
+                streams.stdout.isatty.return_value = False
+                interactive = stdin_tty and stderr_tty
+                result = self.runner.invoke(app, [str(root)], input="2\n" if interactive else "")
+                self.assertEqual(result.exit_code, 0, result.output)
+                self.assertEqual("Choose a python version" in result.stderr, interactive)
+                if not interactive:
+                    self.assertIn('using "latest" (unattended run)', result.stderr)
+                    self.assertIn("examples/legacy/pyproject.toml", result.stderr)
+                expected = "3.13" if interactive else "latest"
+                self.assertEqual(tomllib.loads((root / "mise.toml").read_text()), {"tools": {"python": expected}})
+
+    def test_interrupted_version_prompt_leaves_project_untouched(self) -> None:
+        self.write_manifest_conflict(self.root)
+        for interruption in (EOFError, KeyboardInterrupt):
+            with (
+                self.subTest(interruption=interruption),
+                patch("repotainer.commands.main._can_prompt", return_value=True),
+                patch("repotainer.commands.main.typer.prompt", side_effect=interruption),
+                patch("repotainer.commands.main.write_scaffold") as writer,
+            ):
+                result = self.runner.invoke(app, [str(self.root)])
+                self.assertEqual(result.exit_code, 2, result.output)
+                self.assertIn("Scaffold selection cancelled", result.stderr)
+                writer.assert_not_called()
+        self.assertFalse((self.root / "mise.toml").exists())
+        self.assertFalse((self.root / ".devcontainer").exists())
+
+    def test_version_warning_displays_control_characters_as_text(self) -> None:
+        unusual = Evidence(("example\npath", ".python-version"), value="3.13.\x1b")
+        detection = DetectionResult((ToolEvidence("python", (unusual,)),), ())
+        with patch("repotainer.commands.main.detect", return_value=detection):
+            result = self.runner.invoke(app, [str(self.root)])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn(repr(detection), result.stdout)
+        self.assertIn(r"example\npath/.python-version", result.stderr)
+        self.assertIn(r"3.13.\x1b", result.stderr)
+        self.assertNotIn("\x1b", result.stderr)
+        self.assertEqual(tomllib.loads((self.root / "mise.toml").read_text()), {"tools": {"python": "latest"}})
 
     def test_detector_error_propagates_without_scan_error_or_success_output(self) -> None:
         error = ValueError("invalid built-in rule")
@@ -261,11 +374,10 @@ class RepositoryTests(unittest.TestCase):
                     self.assertFalse((target / ".devcontainer").exists())
                     self.assertFalse((target / "mise.toml").exists())
 
-    def test_preserves_ignored_mise_config_and_reuses_existing_directory(self) -> None:
+    def test_preserves_ignored_root_mise_and_reuses_existing_directory(self) -> None:
         (self.root / "uv.lock").touch()
-        (self.root / ".gitignore").write_text(".mise/\n", encoding="utf-8")
-        mise = self.root / ".mise" / "config.toml"
-        mise.parent.mkdir()
+        (self.root / ".gitignore").write_bytes(b"mise.toml\n")
+        mise = self.root / "mise.toml"
         mise.write_bytes(b"[tools]\n")
         unrelated = self.root / ".devcontainer" / "notes.txt"
         unrelated.parent.mkdir()
@@ -274,17 +386,16 @@ class RepositoryTests(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn("Preserved existing project mise configuration.", result.stdout)
-        self.assertFalse((self.root / "mise.toml").exists())
         self.assertEqual(mise.read_bytes(), b"[tools]\n")
         self.assertEqual(unrelated.read_bytes(), b"keep me")
         self.assertTrue((unrelated.parent / "devcontainer.json").is_file())
 
-    def test_reports_all_conflicts_without_writing(self) -> None:
-        committed_paths = (".gitignore", ".devcontainer/Dockerfile", ".devcontainer.json", "mise.toml")
+    def test_reports_blocked_destinations_without_writing(self) -> None:
         (self.root / ".devcontainer").mkdir()
-        for relative in committed_paths:
-            (self.root / relative).write_bytes(b".devcontainer/\n")
-        before = {path: path.read_bytes() for path in self.root.rglob("*") if path.is_file()}
+        (self.root / ".devcontainer" / "Dockerfile").mkdir()
+        (self.root / ".devcontainer" / "devcontainer.json").mkdir()
+        (self.root / "mise.toml").write_bytes(b"[tools]\n")
+
         result = self.runner.invoke(app, [str(self.root)])
 
         self.assertEqual(result.exit_code, 2, result.output)
@@ -293,31 +404,94 @@ class RepositoryTests(unittest.TestCase):
             result.stderr.splitlines(),
             [
                 "Error: Scaffold conflicts. No files created.",
-                "  .devcontainer.json",
                 "  .devcontainer/Dockerfile",
+                "  .devcontainer/devcontainer.json",
                 "Preserved existing mise.toml.",
             ],
         )
-        self.assertEqual({path: path.read_bytes() for path in self.root.rglob("*") if path.is_file()}, before)
+        self.assertFalse((self.root / ".devcontainer" / "setup.sh").exists())
+        self.assertEqual((self.root / "mise.toml").read_bytes(), b"[tools]\n")
 
-    def test_devcontainer_conflict_blocks_populated_mise_config(self) -> None:
-        inputs = {"uv.lock": b"", ".devcontainer.json": b"{}\n"}
-        for name, content in inputs.items():
-            (self.root / name).write_bytes(content)
+    def test_devcontainer_conflict_reports_recommendations_before_stopping(self) -> None:
+        (self.root / "uv.lock").touch()
+        (self.root / ".devcontainer").write_bytes(b"blocked")
 
         result = self.runner.invoke(app, [str(self.root)])
 
         self.assertEqual(result.exit_code, 2, result.output)
         self.assertIn("ToolEvidence(tool='uv'", result.stdout)
-        self.assertEqual(
-            result.stderr.splitlines(),
-            ["Error: Scaffold conflicts. No files created.", "  .devcontainer.json"],
-        )
-        self.assertCountEqual((path.name for path in self.root.iterdir()), inputs)
-        for name, content in inputs.items():
-            self.assertEqual((self.root / name).read_bytes(), content)
+        self.assertIn('Recommended Mise request: uv = "latest"', result.stderr)
+        self.assertIn("  .devcontainer", result.stderr)
         self.assertFalse((self.root / "mise.toml").exists())
-        self.assertFalse((self.root / ".devcontainer").exists())
+        self.assertEqual((self.root / ".devcontainer").read_bytes(), b"blocked")
+
+    def test_replacement_groups_are_approved_independently_after_preview(self) -> None:
+        for devcontainer, mise in (("y", "y"), ("n", "y"), ("y", "n"), ("n", "n")):
+            with (
+                self.subTest(devcontainer=devcontainer, mise=mise),
+                patch("repotainer.commands.main._can_prompt", return_value=True),
+            ):
+                root = self.root / f"{devcontainer}-{mise}"
+                config = root / ".devcontainer" / "devcontainer.json"
+                config.parent.mkdir(parents=True)
+                config.write_bytes(b'{"name": "existing"}\n')
+                (root / ".python-version").write_bytes(b"3.13.7\n")
+                (root / "mise.toml").write_bytes(b'[tools]\npython = "3.12"\n')
+
+                result = self.runner.invoke(app, [str(root)], input=f"{devcontainer}\n{mise}\n")
+
+                self.assertEqual(result.exit_code, 0, result.output)
+                self.assertIn('Recommended Mise request: python = "3.13.7"', result.stderr)
+                self.assertIn("Current Mise request: 'python' = \"3.12\"", result.stderr)
+                self.assertLess(
+                    result.output.index("DetectionResult"), result.output.index("Replace existing Dev Container")
+                )
+                self.assertLess(
+                    result.stderr.index("Replace entire file .devcontainer/devcontainer.json"),
+                    result.stderr.index("Replace existing Dev Container"),
+                )
+                self.assertLess(
+                    result.stderr.index("Replace existing Dev Container"), result.stderr.index("Replace existing Mise")
+                )
+                self.assertLess(
+                    result.stderr.index("Replace entire file mise.toml"), result.stderr.index("Replace existing Mise")
+                )
+                self.assertEqual(
+                    tomllib.loads((root / "mise.toml").read_text())["tools"]["python"],
+                    "3.13.7" if mise == "y" else "3.12",
+                )
+                self.assertEqual(config.read_bytes() == b'{"name": "existing"}\n', devcontainer == "n")
+                self.assertEqual((config.parent / "setup.sh").exists(), devcontainer == "y")
+
+    def test_unattended_run_preserves_both_groups_and_reports_recommendation(self) -> None:
+        config = self.root / ".devcontainer" / "devcontainer.json"
+        config.parent.mkdir()
+        config.write_bytes(b"existing container")
+        (self.root / "mise.toml").write_bytes(b'[tools]\npython = "3.12"\n')
+        (self.root / ".python-version").write_bytes(b"3.13.7\n")
+        with patch("repotainer.commands.main._can_prompt", return_value=False):
+            result = self.runner.invoke(app, [str(self.root)])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn('Recommended Mise request: python = "3.13.7"', result.stderr)
+        self.assertNotIn("Replace existing", result.stderr)
+        self.assertIn("No scaffold files changed.", result.stdout)
+        self.assertEqual(config.read_bytes(), b"existing container")
+        self.assertEqual((self.root / "mise.toml").read_bytes(), b'[tools]\npython = "3.12"\n')
+
+    def test_eof_after_first_replacement_approval_creates_no_files(self) -> None:
+        config = self.root / ".devcontainer" / "devcontainer.json"
+        config.parent.mkdir()
+        config.write_bytes(b"old")
+        (self.root / "mise.toml").write_bytes(b"[tools]\n")
+        with (
+            patch("repotainer.commands.main._can_prompt", return_value=True),
+            patch("repotainer.commands.main.write_scaffold") as writer,
+        ):
+            result = self.runner.invoke(app, [str(self.root)], input="y\n")
+        self.assertEqual(result.exit_code, 2, result.output)
+        self.assertIn("Scaffold selection cancelled", result.stderr)
+        writer.assert_not_called()
+        self.assertEqual(config.read_bytes(), b"old")
 
     def test_reports_generation_error_and_cleanup_details(self) -> None:
         error = ScaffoldWriteError(

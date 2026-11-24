@@ -3,41 +3,39 @@
 - Author: Suchi Pragya
 - Review status: Author-approved design. All 12 EGM review findings resolved.
 - Implementation state: Implemented and [verified locally](#implementation-verification).
-- Updated: 2026-11-22
+- Updated: 2026-11-24
 
 ## Overview
 
-Running `repotainer [PATH]` inventories the selected directory, prints detected tool evidence, and generates three static Dev Container files. If the selected root has no Mise configuration at a recognized location, Repotainer also creates a root `mise.toml` from the selected tools. Mise installs and manages tools inside the container. [Mise tool configuration](mise-tool-configuration.md)
+Running `repotainer [PATH]` inventories the selected directory, prints detected tool evidence, and recommends tool requests for the generated scaffold. The command can create the three static Dev Container files and a root `mise.toml`. It offers separate approvals for replacing existing files in either group after the scan. [Tool version resolution and approvals](tool-version-resolution.md)
 
 ## The problem
 
-Before scaffold generation, the CLI stopped after reporting evidence and users created the container build and setup files themselves. The static scaffold prepares the container and can use a generated tool list. Generation must preserve existing project configuration and avoid changing which Dev Container opens by default. [Current CLI contract](repository-inspection.md)
+Before scaffold generation, the CLI stopped after reporting evidence and users created the container build and setup files themselves. The static scaffold prepares the container and uses the generated tool list. Existing root configurations can be kept or explicitly replaced after the recommendations are available. [Current CLI contract](repository-inspection.md)
 
 ## Goals
 
-- Keep `repotainer [PATH]` as the entry point. Use the current directory when `PATH` is omitted. Support projects with or without Git metadata.
-- Keep the inventory and evidence report. Generate the same static dev container files for any detection result.
-- Preserve existing Mise config. Create `mise.toml` for the selected tools only when there is no config at a recognized location anchored at the selected root.
-- Check all safely reachable dev container destinations and alternate configurations before creating anything. List all conflicts, including a blocked `.devcontainer` directory path, and exit without writing.
+- Keep `repotainer [PATH]` as the entry point and use the current directory when `PATH` is omitted. Support projects with or without Git metadata.
+- Keep the inventory and evidence report. Use bundled templates for the Dev Container files.
+- Create missing configuration groups and preserve existing groups unless the user approves replacement.
+- Check fixed root destinations before writes. Report blocked paths, and back up the approved originals for recovery.
 
 ## Non-goals
 
-- Rendering a project-specific Dockerfile. The [Mise tool configuration design](mise-tool-configuration.md) owns the evidence-driven tool selection and version request policy.
-- Overwriting or merging existing configuration.
-- Building or starting the container during the Repotainer invocation. The dev container runner builds the image and invokes the setup script.
+- Rendering a project-specific Dockerfile or merging existing configuration.
+- Building or starting the container during the Repotainer invocation. The Dev Container runner builds the image and invokes the setup script.
 
 ## Technical plan
 
 ### Command flow
 
-The [root command](../../src/repotainer/commands/main.py) runs the inventory and detector, prints the report, and passes the resolved root and selected tool IDs to the scaffold writer. A user who declines the large-scan prompt, a scan failure, or an unexpected detector failure ends the command before generation. A declaration-read diagnostic, such as an invalid `pyproject.toml`, is part of a completed detection result and does not block generation. [Tool selection and rendering](mise-tool-configuration.md#technical-plan)
+The [root command](../../src/repotainer/commands/main.py) runs the inventory and detector, prints evidence, and derives recommendations from the detected tool groups. It inspects the root destinations, collects any required version choice, and asks about replacements after showing the proposed writes. The writer applies the plan once the decisions are complete. A declaration-read diagnostic can coexist with other usable evidence. [Current CLI contract](repository-inspection.md) · [Version and replacement policy](tool-version-resolution.md#technical-plan)
 
 ```text
 repotainer [PATH]
-  → resolve root → inventory → detect → print report
-  → select tool IDs → pass root and IDs to scaffold writer
-  → check dev container conflicts and project mise config
-  → report conflicts or write the scaffold
+  → resolve root → inventory → detect → print evidence
+  → recommend requests → inspect root destinations → show choices and preview
+  → obtain separate approvals → back up approved originals → write scaffold
 ```
 
 ### Generated files
@@ -47,7 +45,7 @@ repotainer [PATH]
 | `.devcontainer/devcontainer.json` | Uses `.` as the build context relative to the config file, `Dockerfile` as the build file, and `bash .devcontainer/setup.sh` as `postCreateCommand`. |
 | `.devcontainer/Dockerfile` | Uses `mcr.microsoft.com/devcontainers/base:ubuntu26.04`, copies the mise binary from `jdxcode/mise` to `/usr/local/bin/`, and activates mise in the `vscode` user's Bash and Zsh startup files. The hand-maintained template omits the uv, `python3`, and `tmux` installation steps from [Repotainer's development Dockerfile](../../.devcontainer/Dockerfile). |
 | `.devcontainer/setup.sh` | Runs Bash with strict error handling, derives the workspace root from the script location without invoking Git, and runs `mise install` from that root. |
-| `mise.toml` | Created only when project Mise config is absent at the recognized locations. Contains one `"latest"` request per selected tool and an empty `[tools]` table when the selection is empty. |
+| `mise.toml` | Created when root `mise.toml` is absent or replaced with explicit approval. Contains one resolved request per selected tool and an empty `[tools]` table when the selection is empty. |
 
 The three static Dev Container templates ship with Repotainer and contain no project-specific settings or host token forwarding.
 
@@ -57,28 +55,13 @@ The templates produce identical bytes for a given Repotainer build. Building the
 
 ### Project mise configuration
 
-Check the documented project config locations anchored at the selected root using filesystem metadata. A match is enough to skip generating `mise.toml`, even when the config belongs to an environment that is currently inactive. Preserve every existing config. This check runs independently of inventory ignore rules, so an ignored `mise.local.toml` still counts.
-
-| Location relative to the selected root | What counts |
-| --- | --- |
-| Root | `mise.toml`, `mise.local.toml`, `mise.<env>.toml`, `mise.<env>.local.toml`, their documented dotfile forms, and `.tool-versions`. |
-| `mise/`, `.mise/`, and `.config/mise/` | `config.toml` and its local and environment variants. Also check the documented `mise.toml` family directly in `.config/` and `.config/mise/`. |
-| `mise/conf.d/`, `.mise/conf.d/`, and `.config/mise/conf.d/` | Documented TOML fragments and config files or variants inside one-level named fragment directories. Skip hidden fragment names. |
-| Root and `.config/` | Documented project environment and discovery settings at `.miserc.toml`, `.miserc.local.toml`, and `.config/miserc.toml`. |
-
-This is a bounded location check. The writer does not recurse into nested projects or inspect ancestor, user, global, or system config. It neither parses config values nor uses custom discovery settings to expand the checked locations. Do not traverse a config directory link or junction outside the project root. Preserve a link at a recognized file path without reading its contents. If `mise.toml` itself is occupied by an unusable entry such as a directory, report the path and stop before writes. [Mise config locations](https://mise.jdx.dev/configuration.html#config-file-locations) · [Config environments](https://mise.jdx.dev/configuration/environments.html#file-names-and-precedence) · [Mise discovery settings](https://mise.jdx.dev/configuration.html#miserc-toml)
+Inspect only `mise.toml` at the selected root for the scaffold preview and writes. The check uses the destination path independently of inventory exclusions. The preview can summarize tool requests from an existing regular file. Alternate and nested Mise configurations remain outside this workflow. Mise can discover other configuration when it runs in the container. [Replacement scope](tool-version-resolution.md#replacement-scope)
 
 ### Destination checks and writes
 
-Inspect the actual destination paths before creating anything. Any existing entry at a dev container file destination is a conflict, including directories and valid or broken links. Check for root `.devcontainer.json` and for `.devcontainer/<name>/devcontainer.json` one level below the main config directory. The generated primary config would otherwise take precedence over those alternate configurations. Check named directories that can be inspected within the root. [Dev Container discovery order](https://github.com/devcontainers/spec/blob/main/docs/specs/devcontainer-reference.md#devcontainerjson)
+Inspect root `mise.toml` and the three generated files directly in the root `.devcontainer/` directory. Reuse an ordinary directory. A symlink, Windows junction, or non-directory at `.devcontainer/` blocks writes, as does a non-regular entry at any generated file path. Other files in the directory stay outside the write plan. A regular file can be replaced by approving its group after the preview. [Root paths and approval](tool-version-resolution.md#review-and-approve-writes-after-scanning)
 
-Reuse an ordinary `.devcontainer` directory. If the path is a symlink, Windows junction, or non-directory, report it as a conflict and skip its children. Still check the root alternate `.devcontainer.json` and root-level `mise.toml` independently. A usable existing `mise.toml` is reported as preserved, alongside any conflict report if applicable. Exit with status `2` before writes when preflight finds a conflict or cannot check a required path. [Existing scan-root junction check](../../src/repotainer/scanning/paths.py)
-
-The resolved root, its ancestors, and the checked or newly created `.devcontainer` directory must stay in place from preflight through cleanup. Entries created by this invocation must stay in place during their ownership check and removal. Exclusive creation fails if the final destination becomes occupied before it is opened. If `.devcontainer` was absent and appears before the writer creates it, stop and report that path.
-
-Write the Dockerfile, setup script, and optional `mise.toml` before writing `devcontainer.json`. On a handled write failure, report the failing path and attempt cleanup of only the entries this run created and can still identify. Preserve and report replacements or entries of uncertain ownership. If the writer observes that `.devcontainer` has been replaced, stop accessing files through that path. Remove a directory created by this run only when it can still be identified and is empty.
-
-Abrupt termination can leave partial output. On retry, existing dev container files are reported as conflicts. Users can inspect those paths, remove files they can identify as partial scaffold output, and retry. If a generated `mise.toml` remains, report it as preserved under the same rule as any other existing mise config.
+Back up all approved originals before writing. Create new files exclusively and stage replacement bytes beside each destination before replacing it. Write in Dockerfile, setup script, Mise, and Dev Container configuration order, skipping declined groups. On a handled error, remove identifiable files created during the run and restore originals already replaced. Retain and report a backup if restoration fails. Abrupt termination while writing can leave partial output and a backup. [Backup and restore contract](tool-version-resolution.md#back-up-and-restore-approved-replacements)
 
 ## Alternatives considered
 
@@ -92,13 +75,15 @@ The original scaffold milestone reused existing Mise config or supplied an empty
 
 ### Generate over an existing dev container setup
 
-Overwriting or merging would require compatibility rules across JSON, Dockerfile instructions, and Bash. Generating beside an alternate config can change the default container even when no existing bytes change. Existing dev container configuration blocks generation.
+The original scaffold milestone blocked generation at existing destinations. The follow-up supports explicit replacement of the three generated files after the user reviews the plan. Merging configuration remains outside that workflow. [Replacement scope](tool-version-resolution.md#replacement-scope)
 
 ### Keep files after a partial write failure
 
-Keeping those files would avoid cleanup work, but users would need to clear scaffold conflicts before retrying. The writer attempts to remove only identifiable entries created in the failed run.
+Keeping those files would avoid cleanup work, but users would need to clear scaffold conflicts before retrying. The original milestone removed identifiable files created by the failed run. Approved replacement adds restoration of backed-up originals.
 
 ## Detailed implementation plan
+
+These steps describe the original scaffold milestone. The [tool version resolution plan](tool-version-resolution.md#detailed-implementation-plan) owns the current writer interfaces and replacement behavior.
 
 This historical plan describes the original static scaffold milestone.
 
@@ -125,6 +110,8 @@ Run `uv run --locked python -m unittest discover -s tests -p test_repository.py`
 - **Modify this design and [SITEMAP.md](SITEMAP.md).** Record implementation status and actual verification results, including the assessed commit or working-tree state.
 
 ### Verification plan
+
+These checks describe the original scaffold milestone.
 
 - From the checkout, run `uv run --locked repotainer <fixture>` against a temporary Python project without Git metadata. Check status `0`, the evidence before the success message, the exact four output paths, and unchanged inputs. Parse JSON and TOML and check the Dockerfile instructions, setup command, and empty `[tools]` table. Rerun the command. Expect status `2`, all three dev container destination conflicts, and preservation of the existing `mise.toml` and all file contents.
 - Run the console command on a fresh project with only an ignored `.mise/config.toml` or a root `mise.<env>.local.toml`. Verify that only the three dev container files are added. Run on a separate fixture containing only an alternate dev container config. Expect a conflict and no added files.

@@ -7,6 +7,8 @@
 
 ## Overview
 
+This design records the original floating-request milestone. [Tool version resolution](tool-version-resolution.md) supersedes its request selection and destination behavior. The implementation verification below records the original milestone.
+
 When the selected root has no Mise configuration at a recognized location, Repotainer will use its existing Python and uv detection rules to populate the generated `mise.toml`. Each detected tool in this milestone gets the literal value `"latest"`. The generated file gives developers an editable tool list for the Dev Container setup. [Existing detection rules](repository-evidence-detection.md#initial-rules) · [Scaffold generation](devcontainer-scaffold.md)
 
 ## The problem

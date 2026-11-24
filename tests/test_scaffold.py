@@ -7,9 +7,19 @@ import unittest
 from contextlib import contextmanager
 from importlib.resources import files
 from pathlib import Path
+from shutil import copy2
 from unittest.mock import patch
 
-from repotainer.scaffold import ScaffoldConflictError, ScaffoldWriteError, write_scaffold
+from repotainer import scaffold
+from repotainer.scaffold import (
+    ScaffoldConflictError,
+    ScaffoldPlan,
+    ScaffoldWriteError,
+    ToolRequests,
+    inspect_scaffold,
+    plan_scaffold,
+    write_scaffold,
+)
 
 DOCKERFILE = Path(".devcontainer/Dockerfile")
 SETUP = Path(".devcontainer/setup.sh")
@@ -22,8 +32,11 @@ class ScaffoldTests(unittest.TestCase):
         temporary = self.enterContext(tempfile.TemporaryDirectory())
         self.root = Path(temporary).resolve()
 
+    def plan(self, requests: ToolRequests = ()) -> ScaffoldPlan:
+        return plan_scaffold(inspect_scaffold(self.root), requests)
+
     def test_creates_the_static_files_and_writes_config_last(self) -> None:
-        created = write_scaffold(self.root)
+        created = write_scaffold(self.plan()).created
         self.assertEqual(created, (DOCKERFILE, SETUP, MISE, CONFIG))
         config = json.loads((self.root / CONFIG).read_bytes())
         self.assertEqual(
@@ -40,87 +53,53 @@ class ScaffoldTests(unittest.TestCase):
             self.assertNotIn(excluded, dockerfile)
 
     def test_creates_populated_mise_config_in_alphabetical_order(self) -> None:
-        created = write_scaffold(self.root, selected_tools=("uv", "python"))
+        created = write_scaffold(self.plan((("uv", "latest"), ("python", "3.13.7")))).created
 
         self.assertEqual(created, (DOCKERFILE, SETUP, MISE, CONFIG))
         content = (self.root / MISE).read_bytes()
-        self.assertEqual(content, b'[tools]\npython = "latest"\nuv = "latest"\n')
-        self.assertEqual(tomllib.loads(content.decode("utf-8")), {"tools": {"python": "latest", "uv": "latest"}})
+        self.assertEqual(content, b'[tools]\npython = "3.13.7"\nuv = "latest"\n')
+        tools = tomllib.loads(content.decode("utf-8"))["tools"]
+        self.assertEqual(tools, {"python": "3.13.7", "uv": "latest"})
+        self.assertEqual(list(tools), ["python", "uv"])
 
-    def test_preserves_each_supported_project_mise_location(self) -> None:
-        locations = (
-            "mise.toml",
+    def test_preserves_unapproved_root_mise_file(self) -> None:
+        original = b"unparsed original bytes"
+        (self.root / MISE).write_bytes(original)
+        plan = plan_scaffold(inspect_scaffold(self.root), (("python", "3.13"),))
+
+        written = write_scaffold(plan)
+
+        self.assertEqual(written.created, (DOCKERFILE, SETUP, CONFIG))
+        self.assertEqual(written.replaced, ())
+        self.assertEqual((self.root / MISE).read_bytes(), original)
+
+    def test_alternate_and_nested_configs_are_outside_the_write_plan(self) -> None:
+        paths = (
+            ".devcontainer.json",
+            ".devcontainer/nested/devcontainer.json",
             ".mise.toml",
             "mise.local.toml",
-            ".mise.local.toml",
-            "mise.ci.toml",
-            "mise.ci.local.toml",
-            ".mise.ci.local.toml",
+            ".mise/config.toml",
             ".tool-versions",
-            ".miserc.toml",
-            ".miserc.local.toml",
-            ".config/miserc.toml",
-            ".config/mise.toml",
-            ".config/mise.ci.local.toml",
-            ".config/mise/mise.toml",
-            ".config/mise/mise.ci.toml",
-            ".config/mise/config.local.toml",
-            ".mise/config.ci.toml",
-            "mise/config.toml",
-            "mise/config.ci.local.toml",
-            "mise/conf.d/tool.toml",
-            ".mise/conf.d/tools.ci.local.toml",
-            ".config/mise/conf.d/tools/mise.ci.toml",
+            "app/mise.toml",
         )
-        for index, location in enumerate(locations):
-            with self.subTest(location=location):
-                root = self.root / str(index)
-                config = root / location
-                config.parent.mkdir(parents=True)
-                config.write_bytes(b"unparsed original bytes")
-                self.assertEqual(write_scaffold(root, selected_tools=("python", "uv")), (DOCKERFILE, SETUP, CONFIG))
-                self.assertEqual(config.read_bytes(), b"unparsed original bytes")
-                self.assertEqual((root / MISE).exists(), location == MISE.as_posix())
+        for name in paths:
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"original")
+        plan = plan_scaffold(inspect_scaffold(self.root))
 
-    def test_ignores_nested_projects_ancestor_configs_and_hidden_fragments(self) -> None:
-        target = self.root / "project"
-        for relative in (".mise/conf.d/.hidden/mise.toml", ".mise/conf.d/.hidden.toml", "backend/.mise/config.toml"):
-            config = target / relative
-            config.parent.mkdir(parents=True, exist_ok=True)
-            config.touch()
-        (self.root / MISE).touch()
-        self.assertIn(MISE, write_scaffold(target))
+        self.assertEqual(write_scaffold(plan).created, (DOCKERFILE, SETUP, MISE, CONFIG))
+        for name in paths:
+            self.assertEqual((self.root / name).read_bytes(), b"original")
 
-    def test_project_mise_link_and_outside_directory_link(self) -> None:
-        project = self.root / "project"
-        outside = self.root / "outside"
-        project.mkdir()
-        outside.mkdir()
-        (outside / "config.toml").touch()
-        try:
-            (project / ".mise.toml").symlink_to(outside / "missing")
-            (project / ".mise").symlink_to(outside, target_is_directory=True)
-        except OSError as error:
-            self.skipTest(str(error))
-
-        self.assertNotIn(MISE, write_scaffold(project))
-        (project / ".mise.toml").unlink()
-        for relative in (DOCKERFILE, SETUP, CONFIG):
-            (project / relative).unlink()
-        self.assertIn(MISE, write_scaffold(project))
-
-    def test_reports_sorted_conflicts_including_alternate_configurations(self) -> None:
-        child_config = self.root / ".devcontainer/python/devcontainer.json"
-        child_config.parent.mkdir(parents=True)
-        child_config.touch()
+    def test_reports_sorted_conflicts_at_canonical_destinations(self) -> None:
+        (self.root / CONFIG.parent).mkdir()
         (self.root / DOCKERFILE).mkdir()
-        (self.root / ".devcontainer.json").touch()
+        (self.root / MISE).mkdir()
         with self.assertRaises(ScaffoldConflictError) as raised:
-            write_scaffold(self.root)
-        self.assertEqual(
-            raised.exception.paths, (Path(".devcontainer.json"), DOCKERFILE, child_config.relative_to(self.root))
-        )
-        self.assertFalse((self.root / MISE).exists())
+            inspect_scaffold(self.root)
+        self.assertEqual(raised.exception.paths, (DOCKERFILE, MISE))
         self.assertFalse((self.root / SETUP).exists())
 
     def test_reports_a_broken_link_at_an_output_path(self) -> None:
@@ -130,17 +109,16 @@ class ScaffoldTests(unittest.TestCase):
         except OSError as error:
             self.skipTest(str(error))
         with self.assertRaises(ScaffoldConflictError) as raised:
-            write_scaffold(self.root)
+            write_scaffold(self.plan())
         self.assertEqual(raised.exception.paths, (CONFIG,))
         self.assertTrue((self.root / CONFIG).is_symlink())
 
     def test_blocked_parent_still_reports_root_conflicts_and_mise_preservation(self) -> None:
         (self.root / CONFIG.parent).touch()
-        (self.root / ".devcontainer.json").touch()
         (self.root / MISE).write_text("[tools]\n", encoding="utf-8")
         with self.assertRaises(ScaffoldConflictError) as raised:
-            write_scaffold(self.root)
-        self.assertEqual(raised.exception.paths, (CONFIG.parent, Path(".devcontainer.json")))
+            write_scaffold(self.plan())
+        self.assertEqual(raised.exception.paths, (CONFIG.parent,))
         self.assertTrue(raised.exception.preserves_root_mise)
 
     @unittest.skipUnless(sys.platform == "win32", "Windows junctions require Windows")
@@ -152,16 +130,136 @@ class ScaffoldTests(unittest.TestCase):
         if result.returncode:
             self.skipTest(result.stderr.decode(errors="replace"))
         with self.assertRaises(ScaffoldConflictError) as raised:
-            write_scaffold(self.root)
+            write_scaffold(self.plan())
         self.assertEqual(raised.exception.paths, (CONFIG.parent,))
         self.assertEqual(list(other.iterdir()), [])
 
     def test_directory_at_mise_destination_is_unusable(self) -> None:
         (self.root / MISE).mkdir()
         with self.assertRaises(ScaffoldConflictError) as raised:
-            write_scaffold(self.root)
+            write_scaffold(self.plan())
         self.assertEqual(raised.exception.paths, (MISE,))
         self.assertFalse((self.root / CONFIG.parent).exists())
+
+    def test_rejects_invalid_requests_before_writes(self) -> None:
+        cases: tuple[ToolRequests, ...] = (
+            (("go", "latest"),),
+            (("uv", "0.9.1"),),
+            (("python", "3.13."),),
+            (("python", "3.13"), ("python", "latest")),
+        )
+        for requests in cases:
+            with self.subTest(requests=requests), self.assertRaises(ValueError):
+                self.plan(requests)
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_backs_up_only_approved_existing_files_before_writing(self) -> None:
+        directory = self.root / CONFIG.parent
+        directory.mkdir()
+        (self.root / CONFIG).write_bytes(b"old config")
+        (self.root / MISE).write_bytes(b"old mise")
+        unrelated = directory / "notes.txt"
+        unrelated.write_bytes(b"keep me")
+        plan = self.plan((("python", "3.13"),))
+        backup = self.root / "private-backup"
+        backup.mkdir()
+
+        replace_file = scaffold._replace_file
+
+        def replace_after_backup(path: Path, content: bytes) -> None:
+            self.assertEqual((backup / CONFIG).read_bytes(), b"old config")
+            self.assertFalse((backup / MISE).exists())
+            replace_file(path, content)
+
+        with (
+            patch("repotainer.scaffold.mkdtemp", return_value=str(backup)),
+            patch("repotainer.scaffold.copy2", wraps=copy2) as copy,
+            patch("repotainer.scaffold._replace_file", side_effect=replace_after_backup),
+        ):
+            written = write_scaffold(plan, replace_devcontainer=True)
+
+        copy.assert_called_once_with(self.root / CONFIG, backup / CONFIG)
+        self.assertEqual(written.created, (DOCKERFILE, SETUP))
+        self.assertEqual(written.replaced, (CONFIG,))
+        self.assertEqual((self.root / MISE).read_bytes(), b"old mise")
+        self.assertEqual(unrelated.read_bytes(), b"keep me")
+        self.assertFalse(backup.exists())
+
+    def test_backup_failure_leaves_all_scaffold_files_untouched(self) -> None:
+        (self.root / MISE).write_bytes(b"old mise")
+        backup = self.root / "private-backup"
+        backup.mkdir()
+        plan = self.plan()
+        with (
+            patch("repotainer.scaffold.mkdtemp", return_value=str(backup)),
+            patch("repotainer.scaffold.copy2", side_effect=PermissionError("cannot copy")),
+            self.assertRaises(ScaffoldWriteError) as raised,
+        ):
+            write_scaffold(plan, replace_mise=True)
+        self.assertEqual(raised.exception.path, self.root / MISE)
+        self.assertEqual(list(self.root.iterdir()), [self.root / MISE])
+        self.assertEqual((self.root / MISE).read_bytes(), b"old mise")
+
+    def test_replacement_failure_rolls_back_both_groups_and_new_files(self) -> None:
+        directory = self.root / CONFIG.parent
+        directory.mkdir()
+        originals = {DOCKERFILE: b"old Dockerfile", MISE: b"old mise", CONFIG: b"old config"}
+        for path, content in originals.items():
+            (self.root / path).write_bytes(content)
+        plan = self.plan((("python", "3.13"),))
+        replace_file = scaffold._replace_file
+        backup = self.root / "private-backup"
+        backup.mkdir()
+
+        def fail_on_config(path: Path, content: bytes, *, original: Path | None = None) -> None:
+            if path == self.root / CONFIG:
+                self.assertEqual({key: (backup / key).read_bytes() for key in originals}, originals)
+                self.assertTrue((self.root / SETUP).exists())
+                self.assertNotEqual((self.root / MISE).read_bytes(), originals[MISE])
+                raise OSError("disk full")
+            replace_file(path, content, original=original)
+
+        with (
+            patch("repotainer.scaffold.mkdtemp", return_value=str(backup)),
+            patch("repotainer.scaffold._replace_file", side_effect=fail_on_config),
+            self.assertRaises(ScaffoldWriteError) as raised,
+        ):
+            write_scaffold(plan, replace_devcontainer=True, replace_mise=True)
+
+        self.assertEqual(raised.exception.restored, (MISE, DOCKERFILE))
+        self.assertEqual(raised.exception.cleanup_problems, ())
+        self.assertEqual({key: (self.root / key).read_bytes() for key in originals}, originals)
+        self.assertFalse((self.root / SETUP).exists())
+        self.assertFalse(backup.exists())
+
+    def test_restoration_failure_keeps_the_backup(self) -> None:
+        directory = self.root / CONFIG.parent
+        directory.mkdir()
+        (self.root / DOCKERFILE).write_bytes(b"old Dockerfile")
+        (self.root / CONFIG).write_bytes(b"old config")
+        plan = self.plan()
+        replace_file = scaffold._replace_file
+        backup = self.root / "private-backup"
+        backup.mkdir()
+
+        def fail_on_config_and_restore(path: Path, content: bytes, *, original: Path | None = None) -> None:
+            if original is not None or path == self.root / CONFIG:
+                raise PermissionError("cannot write")
+            replace_file(path, content)
+
+        with (
+            patch("repotainer.scaffold.mkdtemp", return_value=str(backup)),
+            patch("repotainer.scaffold._replace_file", side_effect=fail_on_config_and_restore),
+            self.assertRaises(ScaffoldWriteError) as raised,
+        ):
+            write_scaffold(plan, replace_devcontainer=True)
+
+        self.assertEqual(raised.exception.backup, backup)
+        self.assertEqual(raised.exception.cleanup_problems, ((self.root / DOCKERFILE, "cannot write"),))
+        self.assertEqual((backup / DOCKERFILE).read_bytes(), b"old Dockerfile")
+        self.assertEqual((self.root / CONFIG).read_bytes(), b"old config")
+        self.assertFalse((self.root / SETUP).exists())
+        self.assertFalse((self.root / MISE).exists())
 
     def test_resource_and_metadata_failures_leave_the_target_untouched(self) -> None:
         with (
@@ -174,7 +272,7 @@ class ScaffoldTests(unittest.TestCase):
                 files("repotainer").joinpath("scaffold_templates", DOCKERFILE.name).read_bytes()
             )
             with self.assertRaises(ScaffoldWriteError) as raised:
-                write_scaffold(self.root)
+                write_scaffold(self.plan())
             self.assertEqual(raised.exception.path, "bundled template setup.sh")
             self.assertEqual(list(self.root.iterdir()), [])
 
@@ -182,7 +280,7 @@ class ScaffoldTests(unittest.TestCase):
             patch.object(Path, "lstat", side_effect=PermissionError("metadata denied")),
             self.assertRaises(ScaffoldWriteError) as raised,
         ):
-            write_scaffold(self.root)
+            write_scaffold(self.plan())
         self.assertEqual(raised.exception.path, self.root / CONFIG.parent)
         self.assertEqual(list(self.root.iterdir()), [])
 
@@ -195,7 +293,7 @@ class ScaffoldTests(unittest.TestCase):
             mkdir(path)
 
         with patch.object(Path, "mkdir", create_other_directory), self.assertRaises(ScaffoldWriteError) as raised:
-            write_scaffold(self.root)
+            write_scaffold(self.plan())
         self.assertEqual(raised.exception.path, self.root / CONFIG.parent)
         self.assertEqual(list((self.root / CONFIG.parent).iterdir()), [self.root / CONFIG.parent / "owner.txt"])
 
@@ -209,7 +307,7 @@ class ScaffoldTests(unittest.TestCase):
             return original_open(path, mode, buffering)
 
         with patch.object(Path, "open", open_after_late_creation), self.assertRaises(ScaffoldWriteError) as raised:
-            write_scaffold(self.root)
+            write_scaffold(self.plan())
         self.assertEqual(raised.exception.path, self.root / CONFIG)
         self.assertEqual((self.root / CONFIG).read_bytes(), b"another writer")
         self.assertFalse((self.root / SETUP).exists())
@@ -220,7 +318,7 @@ class ScaffoldTests(unittest.TestCase):
     def test_cleanup_preserves_a_file_if_its_identity_could_not_be_recorded(self) -> None:
         cause = OSError("could not read identity")
         with patch("repotainer.scaffold.os.fstat", side_effect=cause), self.assertRaises(ScaffoldWriteError) as raised:
-            write_scaffold(self.root)
+            write_scaffold(self.plan())
         self.assertIs(raised.exception.cause, cause)
         self.assertTrue((self.root / DOCKERFILE).exists())
         self.assertIn("could not verify ownership", str(raised.exception.cleanup_problems))
@@ -248,11 +346,11 @@ class ScaffoldTests(unittest.TestCase):
             return original_open(path, mode, buffering)
 
         with patch.object(Path, "open", open_until_config), self.assertRaises(ScaffoldWriteError) as raised:
-            write_scaffold(self.root, selected_tools=("python",))
+            write_scaffold(self.plan((("python", "latest"),)))
         self.assertIs(raised.exception.cause, cause)
         self.assertEqual(raised.exception.cleanup_problems, ())
         self.assertEqual(list(self.root.iterdir()), [])
-        self.assertEqual(write_scaffold(self.root, selected_tools=("python",)), (DOCKERFILE, SETUP, MISE, CONFIG))
+        self.assertEqual(write_scaffold(self.plan((("python", "latest"),))).created, (DOCKERFILE, SETUP, MISE, CONFIG))
         self.assertEqual((self.root / MISE).read_bytes(), b'[tools]\npython = "latest"\n')
 
     def test_cleanup_preserves_an_observed_replacement_file(self) -> None:
@@ -268,7 +366,7 @@ class ScaffoldTests(unittest.TestCase):
             return original_open(path, mode, buffering)
 
         with patch.object(Path, "open", replace_before_failure), self.assertRaises(ScaffoldWriteError) as raised:
-            write_scaffold(self.root)
+            write_scaffold(self.plan())
         self.assertEqual(dockerfile.read_bytes(), b"replacement")
         self.assertIn(dockerfile, dict(raised.exception.cleanup_problems))
 
@@ -284,7 +382,7 @@ class ScaffoldTests(unittest.TestCase):
             return original_open(path, mode, buffering)
 
         with patch.object(Path, "open", replace_parent), self.assertRaises(ScaffoldWriteError) as raised:
-            write_scaffold(self.root)
+            write_scaffold(self.plan())
         self.assertEqual(list(directory.iterdir()), [])
         self.assertTrue((self.root / "original" / DOCKERFILE.name).is_file())
         self.assertIn(directory, dict(raised.exception.cleanup_problems))
